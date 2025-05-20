@@ -1,5 +1,5 @@
 #  OSIRIS Data Pipeline
-Ce projet est un pipeline de traitement de données cliniques basé sur le modèle OSIRIS RWD, développé dans le cadre d’un ETL automatisé pour l’IUCT Oncopole. Il permet l’extraction de données depuis Oracle IRIS, leur transformation et leur chargement dans PostgreSQL, avec une structure conforme aux standards OSIRIS/OMOP.
+Ce projet est un pipeline de traitement de données cliniques basé sur le modèle OSIRIS RWD, développé dans le cadre d’un ETL automatisé pour l’IUCT Oncopole. Il permet l’extraction de données depuis Oracle & IRIS, leur transformation et leur chargement dans PostgreSQL, avec une structure conforme aux standards OSIRIS/OMOP.
 
 ---
 
