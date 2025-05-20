@@ -5,7 +5,7 @@ Ce projet est un pipeline de traitement de données cliniques basé sur le modè
 
 ##  Fonctionnalités principales
 
--  ETL automatisé via Airflow (Oracle ➝ PostgreSQL)
+-  ETL automatisé via Airflow (IRIS ➝ PostgreSQL & Oracle ➝ PostgreSQL)
 -  Modélisation alignée OSIRIS RWD (Patient, Measure, Condition, TreatmentLine, etc.)
 -  Détection et journalisation des cas manquants (patients non retrouvés ou sans traitements)
 -  Intégration future vers de la BI (analytiques)
