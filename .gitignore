@@ -1,5 +1,5 @@
 # Python
-__pycache__/
+**/__pycache__/
 *.py[cod]
 *.egg-info/
 *.log
@@ -14,7 +14,7 @@ unittest.cfg
 *.env
 
 # Secrets
-credentials.yml
+dags/config/credentials.yml
 
 # IDEs
 .vscode/
@@ -23,4 +23,7 @@ credentials.yml
 # OS
 .DS_Store
 Thumbs.db
+
+#fichier sensible
+dags/utils/patients.py
 
