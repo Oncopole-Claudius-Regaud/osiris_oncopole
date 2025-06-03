@@ -7,15 +7,15 @@ from utils.extract import extract_all_data
 from utils.loader_iris import load_to_postgresql
 from utils.logger import configure_logger
 
-# Configurer le logger au lancement
+# Configuration du logger au lancement
 configure_logger()
 
-# Définir la fonction d'extraction
+# Définition de la fonction d'extraction
 def extract_data_from_iris_osiris(**kwargs):
     conn = connect_to_iris()
     cursor = conn.cursor()
     data = extract_all_data(cursor)
-    return data  # XCom va gérer le transfert vers load
+    return data
 
 
 # Définir les arguments de base du DAG

@@ -34,7 +34,7 @@ dag = DAG(
     2. Transformation : nettoyage des dates, ajout de hash, jointure avec les patients.
     3. Chargement dans PostgreSQL : uniquement les nouvelles données sont insérées.
 
-    Ce DAG est destiné au chargement du parcours de chimiothérapie dans `osiris`.
+    Ce DAG est destiné au chargement du parcours de chimiothérapie dans `un modele d'arch osiris`.
     """
 )
 
