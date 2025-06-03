@@ -46,5 +46,6 @@ jobs:
 
       - name: Run pytest
         run: |
+          export PYTHONPATH="${PYTHONPATH}:$(pwd)"
           if [ -d "tests" ]; then pytest tests/; else echo "No tests directory."; fi
 
