@@ -15,7 +15,7 @@ unittest.cfg
 *.env
 
 # Secrets
-dags/config/credentials.yml
+config/credentials.yml
 
 # IDEs
 .vscode/
@@ -26,5 +26,5 @@ dags/config/credentials.yml
 Thumbs.db
 
 #fichier sensible
-dags/utils/patients.py
+utils/patients.py
 
