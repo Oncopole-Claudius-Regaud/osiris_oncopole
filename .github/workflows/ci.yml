@@ -27,7 +27,7 @@ jobs:
 
     - name: Lint with flake8
       run: |
-        flake8 dags/ --exclude=__pycache__,config,utils/patients.py
+        flake8 . --exclude=__pycache__,config,utils/patients.py
 
     - name: Run tests with pytest
       run: |
