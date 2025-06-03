@@ -3,6 +3,7 @@
 *.py[cod]
 *.egg-info/
 *.log
+*.pyc
 
 # Airflow
 airflow.db
