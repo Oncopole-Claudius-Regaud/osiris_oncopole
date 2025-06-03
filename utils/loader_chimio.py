@@ -3,6 +3,7 @@ import logging
 from utils.transform import clean_int
 import pandas as pd
 
+
 def load_treatment_lines(df):
     postgres = PostgresHook(postgres_conn_id="postgres_chimio")
 
@@ -129,4 +130,3 @@ def load_drug_administrations(df):
             )
         )
     logging.info(f"{len(df)} médicaments insérés.")
-

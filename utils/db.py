@@ -4,6 +4,7 @@ import pyodbc
 import cx_Oracle
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 
+
 # Chargement des credentials depuis un fichier YAML
 def load_credentials(filename="credentials.yml"):
     """
@@ -63,4 +64,3 @@ def get_postgres_hook(conn_id='postgres_chimio'):
     Retourne un PostgresHook Airflow pour exécuter des requêtes PostgreSQL.
     """
     return PostgresHook(postgres_conn_id=conn_id)
-
