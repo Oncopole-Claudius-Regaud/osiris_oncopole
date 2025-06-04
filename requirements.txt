@@ -1,0 +1,11 @@
+# Core dependencies
+PyYAML==6.0.2
+pyodbc==5.2.0
+apache-airflow==2.10.4
+cx_Oracle==8.3.0
+psycopg2-binary==2.9.10
+pandas==2.2.3
+
+# Dev/test tools
+pytest==8.2.1
+flake8==7.0.0
