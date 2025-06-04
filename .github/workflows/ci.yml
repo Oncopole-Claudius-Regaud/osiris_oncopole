@@ -53,10 +53,12 @@ jobs:
           cp etl_*.py ~/airflow/dags/
           cp requirements.txt ~/airflow/dags/
 
-      - name: Redémarrer Airflow
+      - name: Restart Airflow
         run: |
-          sudo systemctl restart airflow-webserver
-          sudo systemctl restart airflow-scheduler
+          pkill -f "airflow webserver" || true
+          pkill -f "airflow scheduler" || true
+          nohup airflow webserver --daemon > ~/airflow/airflow-webserver.out 2>&1 &
+          nohup airflow scheduler --daemon > ~/airflow/airflow-scheduler.out 2>&1 &
 
       - name: Afficher le chemin courant
         run: |
