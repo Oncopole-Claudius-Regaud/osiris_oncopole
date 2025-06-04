@@ -2,7 +2,7 @@ name: ETL Oncopole CI + Deploy
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
 
 jobs:
   lint-and-test:
@@ -35,6 +35,7 @@ jobs:
     name: Deploy to Airflow Server
     needs: lint-and-test
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
 
     steps:
       - name: Checkout code
