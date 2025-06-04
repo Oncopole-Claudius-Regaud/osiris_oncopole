@@ -41,15 +41,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Copier les nouveaux fichiers dans Airflow
-        run: |
-          cp -r * ~/airflow/dags/
-
       - name: Copier les fichiers du projet vers le dossier Airflow
         run: |
-          cp -r * ~/airflow/dags/
           cp -r utils ~/airflow/dags/
           cp -r sql ~/airflow/dags/
+          cp -r tests ~/airflow/dags/
           cp etl_*.py ~/airflow/dags/
           cp requirements.txt ~/airflow/dags/
 
