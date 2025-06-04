@@ -7,7 +7,7 @@ on:
 jobs:
   lint-and-test:
     name: Lint & Test
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -34,38 +34,35 @@ jobs:
   deploy:
     name: Deploy to Airflow Server
     needs: lint-and-test
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     if: github.ref == 'refs/heads/main'
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Copy DAGs via SSH
-        uses: appleboy/scp-action@v0.1.4
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "dags/*,utils/*,sql/*"
-          target: "~/airflow/dags"
+      - name: Nettoyer le dossier dags/ local (optionnel)
+        run: |
+          rm -rf ~/airflow/dags/*
 
-      - name: Clean up remote dags/ folder
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            rm -rf ~/airflow/dags/*
+      - name: Copier les fichiers du projet vers le dossier Airflow
+        run: |
+          cp -r dags/* ~/airflow/dags/
+          cp -r utils ~/airflow/dags/
+          cp -r sql ~/airflow/dags/
+          cp requirements.txt ~/airflow/dags/
+      
+      - name: Redémarrer Airflow
+        run: |
+          sudo systemctl restart airflow-webserver
+          sudo systemctl restart airflow-scheduler
 
-      - name: Restart Airflow (optional)
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            sudo systemctl restart airflow-webserver
-            sudo systemctl restart airflow-scheduler
+      - name: Afficher le chemin courant
+        run: |
+          echo "Répertoire courant : $(pwd)"
+          ls -la
 
+      - name: Afficher variables d'environnement
+        run: |
+          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
+          echo "HOME=$HOME"
