@@ -34,8 +34,8 @@ def extract_patient_data(cursor):
             "death_of_death": row.death_of_death if isinstance(row.death_of_death, (datetime, date)) else None,
 
             "condition_start_date": row.date_diagnostic if isinstance(row.date_diagnostic, (datetime, date)) else None,
-            "condition_end_date": row.date_diagnostic_end if isinstance(row.date_diagnostic_end, (datetime, date)) else None, # noqa: E501
-            "condition_create_date": row.date_diagnostic_created_at if isinstance(row.date_diagnostic_created_at, (datetime, date)) else None, # noqa: E501
+            "condition_end_date": row.date_diagnostic_end if isinstance(row.date_diagnostic_end, (datetime, date)) else None,  # noqa: E501
+            "condition_create_date": row.date_diagnostic_created_at if isinstance(row.date_diagnostic_created_at, (datetime, date)) else None,  # noqa: E501
             "condition_update_date": row.date_diagnostic_updated_at if isinstance(row.date_diagnostic_updated_at, (datetime, date)) else None,  # noqa: E501
 
             "condition_status": row.diagnostic_status or "",
@@ -77,7 +77,7 @@ def extract_admission_data(cursor):
             "visit_start_time": row.visit_start_time if isinstance(row.visit_start_time, time) else None,
             "visit_end_date": row.visit_end_date if isinstance(row.visit_end_date, (datetime, date)) else None,
             "visit_end_time": row.visit_end_time if isinstance(row.visit_end_time, time) else None,
-            "visit_estimated_end_date": row.visit_estimated_end_date if isinstance(row.visit_estimated_end_date, (datetime, date)) else None,   # noqa: E501 
+            "visit_estimated_end_date": row.visit_estimated_end_date if isinstance(row.visit_estimated_end_date, (datetime, date)) else None,   # noqa: E501
             "visit_estimated_end_time": row.visit_estimated_end_time if isinstance(row.visit_estimated_end_time, time) else None,               # noqa: E501
             "visit_functional_unit": row.visit_functional_unit or "",
             "visit_type": row.visit_type or "",

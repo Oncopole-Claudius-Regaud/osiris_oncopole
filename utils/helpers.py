@@ -1,13 +1,18 @@
 import hashlib
 from datetime import datetime, date, time
 
-# Convertir les objets datetime/date en texte pour qu’ils soient exploitables plus tard
+# Convertir les objets datetime/date en texte pour qu’ils soient
+# exploitables plus tard
+
+
 def serialize(obj):
     if isinstance(obj, (datetime, date, time)):
         return obj.isoformat()
     return obj
 
 # Applique la fonction serialize sur toute une liste de dictionnaires
+
+
 def make_serializable(data_list):
     return [
         {k: serialize(v) for k, v in item.items()}
@@ -15,6 +20,8 @@ def make_serializable(data_list):
     ]
 
 # Génère un hash unique pour chaque visite, basé sur ses champs clés
+
+
 def compute_visit_hash(row):
     key_parts = [
         str(row.get("patient_id") or ""),
@@ -56,4 +63,3 @@ def compute_condition_hash(row):
         str(row.get("cim_active_to") or ""),
     ]
     return hashlib.sha256("|".join(key_parts).encode("utf-8")).hexdigest()
-

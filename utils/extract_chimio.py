@@ -11,6 +11,7 @@ from utils.transform import (
     filter_existing_records
 )
 
+
 def extract_data_from_oracle(query_input):
     """
     Exécute une requête SQL (fichier ou chaîne) sur Oracle et retourne un DataFrame.
@@ -41,7 +42,8 @@ def extract_chimio_data():
     logging.info("[1] Extraction & préparation des données chimiothérapie")
 
     postgres = get_postgres_hook()
-    patients_df = postgres.get_pandas_df("SELECT patient_id, ipp_ocr FROM osiris.patient")
+    patients_df = postgres.get_pandas_df(
+        "SELECT patient_id, ipp_ocr FROM osiris.patient")
 
     patient_ids = get_patient_ids()
     patient_list_sql = ", ".join(f"'{p}'" for p in patient_ids)
@@ -50,43 +52,64 @@ def extract_chimio_data():
     sql_template = load_sql("sql/extract_treatment_line.sql")
     sql = sql_template.format(patient_list=patient_list_sql)
     df_treatment = extract_data_from_oracle(sql)
-    df_treatment = clean_dataframe(df_treatment, date_columns=["start_date", "end_date"])
-    df_treatment = enrich_with_patient_id(df_treatment, patients_df, join_key='noobspat')
+    df_treatment = clean_dataframe(
+        df_treatment, date_columns=[
+            "start_date", "end_date"])
+    df_treatment = enrich_with_patient_id(
+        df_treatment, patients_df, join_key='noobspat')
     df_treatment, hash_col_treatment = remove_duplicates_and_hash(df_treatment, [
         "patient_id", "noobspat", "treatment_line_number", "treatment_label",
         "treatment_comment", "protocol_name", "protocol_detail", "protocol_category",
         "protocol_type", "local_code", "valid_protocol", "start_date", "end_date",
         "nb_cycles", "radiation"
     ])
-    df_treatment = filter_existing_records(df_treatment, postgres, "osiris.treatment_line", hash_col_treatment)
+    df_treatment = filter_existing_records(
+        df_treatment,
+        postgres,
+        "osiris.treatment_line",
+        hash_col_treatment)
 
     # Cycles
     df_cycles = extract_data_from_oracle("extract_cycle.sql")
-    df_cycles = clean_dataframe(df_cycles, date_columns=["start_date", "end_date"])
-    
+    df_cycles = clean_dataframe(
+        df_cycles, date_columns=[
+            "start_date", "end_date"])
+
     # Agréger par noobspat + cycle_number
-    df_cycles = df_cycles[df_cycles['noobspat'].notna() & df_cycles['cycle_number'].notna()]
+    df_cycles = df_cycles[df_cycles['noobspat'].notna() &
+                          df_cycles['cycle_number'].notna()]
     df_cycles = df_cycles.groupby(['noobspat', 'cycle_number']).agg({
         'start_date': 'min',
         'end_date': 'max'
     }).reset_index()
 
-    df_cycles = enrich_with_patient_id(df_cycles, patients_df, join_key='noobspat')
+    df_cycles = enrich_with_patient_id(
+        df_cycles, patients_df, join_key='noobspat')
     df_cycles, hash_col_cycle = remove_duplicates_and_hash(df_cycles, [
         "patient_id", "noobspat", "cycle_number", "start_date", "end_date"
     ])
-    df_cycles = filter_existing_records(df_cycles, postgres, "osiris.treatment_cycle", hash_col_cycle)
-    
+    df_cycles = filter_existing_records(
+        df_cycles,
+        postgres,
+        "osiris.treatment_cycle",
+        hash_col_cycle)
+
     # Médicaments
     df_drugs = extract_data_from_oracle("extract_drug.sql")
-    df_drugs = clean_dataframe(df_drugs, date_columns=["start_date", "end_date"])
-    df_drugs = enrich_with_patient_id(df_drugs, patients_df, join_key='noobspat')
+    df_drugs = clean_dataframe(
+        df_drugs, date_columns=[
+            "start_date", "end_date"])
+    df_drugs = enrich_with_patient_id(
+        df_drugs, patients_df, join_key='noobspat')
     df_drugs, hash_col_drug = remove_duplicates_and_hash(df_drugs, [
         "patient_id", "noobspat", "cycle_number", "start_date", "end_date",
         "protocol_name", "protocol_type", "codepdt", "drug_name", "code_voie",
         "unite", "dose_adm", "is_real_drug"
     ])
-    df_drugs = filter_existing_records(df_drugs, postgres, "osiris.drug_administration", hash_col_drug)
+    df_drugs = filter_existing_records(
+        df_drugs,
+        postgres,
+        "osiris.drug_administration",
+        hash_col_drug)
 
     return df_treatment, df_cycles, df_drugs
-

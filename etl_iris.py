@@ -11,6 +11,8 @@ from utils.logger import configure_logger
 configure_logger()
 
 # Définition de la fonction d'extraction
+
+
 def extract_data_from_iris_osiris(**kwargs):
     conn = connect_to_iris()
     cursor = conn.cursor()
@@ -58,4 +60,3 @@ load_task = PythonOperator(
 
 # Ordre d'exécution
 extract_task >> load_task
-

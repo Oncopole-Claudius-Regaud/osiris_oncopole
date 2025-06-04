@@ -2,6 +2,7 @@ import pandas as pd
 import hashlib
 import logging
 
+
 def clean_int(val):
     """
     Tente de convertir une valeur en entier, retourne None si impossible.
@@ -10,6 +11,7 @@ def clean_int(val):
         return int(val)
     except (ValueError, TypeError):
         return None
+
 
 def clean_dataframe(df, date_columns=None):
     """
@@ -26,7 +28,8 @@ def generate_hash(row, columns):
     """
     Génère un hash SHA-256 à partir de la concaténation des colonnes spécifiées.
     """
-    raw_string = "|".join(str(row[col]) if row[col] is not None else "" for col in columns)
+    raw_string = "|".join(str(row[col]) if row[col]
+                          is not None else "" for col in columns)
     return hashlib.sha256(raw_string.encode("utf-8")).hexdigest()
 
 
@@ -45,7 +48,8 @@ def enrich_with_patient_id(df, patients_df, join_key='noobspat'):
 
     missing = merged[merged["patient_id"].isnull()]
     if not missing.empty:
-        logging.warning(f"{len(missing)} patients Oracle non trouvés dans osiris.patient.")
+        logging.warning(
+            f"{len(missing)} patients Oracle non trouvés dans osiris.patient.")
         missing.to_csv("/mnt/data/patients_non_trouves.csv", index=False)
 
     # On garde uniquement les patients avec une correspondance
@@ -61,10 +65,13 @@ def remove_duplicates_and_hash(df, cols_to_hash):
     hash_col = "record_hash"
 
     # Remplace les NaN par une chaîne vide pour concaténation sûre
-    df[hash_col] = df[cols_to_hash].fillna("").astype(str).agg("|".join, axis=1)
+    df[hash_col] = df[cols_to_hash].fillna(
+        "").astype(str).agg("|".join, axis=1)
 
     # Applique le hash
-    df[hash_col] = df[hash_col].apply(lambda x: hashlib.sha256(x.encode("utf-8")).hexdigest())
+    df[hash_col] = df[hash_col].apply(
+        lambda x: hashlib.sha256(
+            x.encode("utf-8")).hexdigest())
 
     # Supprime les doublons selon le hash
     df = df.drop_duplicates(subset=[hash_col])
@@ -72,7 +79,11 @@ def remove_duplicates_and_hash(df, cols_to_hash):
     return df, hash_col
 
 
-def filter_existing_records(df: pd.DataFrame, pg_hook, table_name: str, hash_column: str) -> pd.DataFrame:
+def filter_existing_records(
+        df: pd.DataFrame,
+        pg_hook,
+        table_name: str,
+        hash_column: str) -> pd.DataFrame:
     """
     Supprime les enregistrements déjà présents dans la table PostgreSQL (basé sur la colonne de hash).
     """
@@ -85,7 +96,13 @@ def transform_all(treatment_df, cycles_df, drugs_df):
     """
     Applique les transformations de base : nettoyage (dates, NaN) sur les 3 DataFrames.
     """
-    treatment_clean = clean_dataframe(treatment_df, date_columns=["start_date", "end_date"])
-    cycles_clean = clean_dataframe(cycles_df, date_columns=["start_date", "end_date"])
-    drugs_clean = clean_dataframe(drugs_df, date_columns=["start_date", "end_date"])
+    treatment_clean = clean_dataframe(
+        treatment_df, date_columns=[
+            "start_date", "end_date"])
+    cycles_clean = clean_dataframe(
+        cycles_df, date_columns=[
+            "start_date", "end_date"])
+    drugs_clean = clean_dataframe(
+        drugs_df, date_columns=[
+            "start_date", "end_date"])
     return treatment_clean, cycles_clean, drugs_clean

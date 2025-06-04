@@ -1,11 +1,11 @@
 import logging
 import hashlib
-from datetime import datetime, date, time
 from utils.db import load_credentials
 from utils.helpers import compute_condition_hash, compute_visit_hash
 from psycopg2.extras import execute_values
 from utils.enrich_measurements import enrich_measure_data
 import psycopg2
+
 
 def load_to_postgresql(**kwargs):
     logging.info("Début du chargement dans PostgreSQL")
@@ -28,14 +28,17 @@ def load_to_postgresql(**kwargs):
     logging.info("Référentiel CIM10 chargé")
 
     ti = kwargs['ti']
-    patient_data, admission_data, measure_data = ti.xcom_pull(task_ids='extract_data_from_iris_osiris')
+    patient_data, admission_data, measure_data = ti.xcom_pull(
+        task_ids='extract_data_from_iris_osiris')
 
     # --- PATIENT ---
     unique_patients = {
         d["ipp_ocr"]: (
-            d["ipp_ocr"], d["ipp_chu"], d["annee_naissance"], d["sexe"], d["death_of_death"]
-        ) for d in patient_data if d.get("ipp_ocr")
-    }
+            d["ipp_ocr"],
+            d["ipp_chu"],
+            d["annee_naissance"],
+            d["sexe"],
+            d["death_of_death"]) for d in patient_data if d.get("ipp_ocr")}
 
     if unique_patients:
         execute_values(cur, """
@@ -53,12 +56,13 @@ def load_to_postgresql(**kwargs):
     condition_rows = []
     for d in patient_data:
         pid = ipp_to_id.get(d["ipp_ocr"])
-        if not pid: continue
+        if not pid:
+            continue
         row_dict = {
             **d,
             "patient_id": pid,
-            "libelle_cim_reference": cim_reference_map.get(d.get("condition_source_value"))
-        }
+            "libelle_cim_reference": cim_reference_map.get(
+                d.get("condition_source_value"))}
         row_hash = compute_condition_hash(row_dict)
         condition_rows.append(tuple([
             pid,
@@ -97,15 +101,23 @@ def load_to_postgresql(**kwargs):
     visit_rows = []
     for v in admission_data:
         pid = ipp_to_id.get(v["ipp_ocr"])
-        if not pid: continue
-        row = {
-            "patient_id": pid,
-            **{k: v.get(k) for k in [
-                "visit_episode_id", "visit_start_date", "visit_start_time", "visit_end_date", "visit_end_time",
-                "visit_estimated_end_date", "visit_estimated_end_time", "visit_functional_unit", "visit_type",
-                "visit_status", "visit_reason", "visit_reason_create_date", "visit_reason_deleted_flag", "is_preadmission"
-            ]}
-        }
+        if not pid:
+            continue
+        row = {"patient_id": pid,
+               **{k: v.get(k) for k in ["visit_episode_id",
+                                        "visit_start_date",
+                                        "visit_start_time",
+                                        "visit_end_date",
+                                        "visit_end_time",
+                                        "visit_estimated_end_date",
+                                        "visit_estimated_end_time",
+                                        "visit_functional_unit",
+                                        "visit_type",
+                                        "visit_status",
+                                        "visit_reason",
+                                        "visit_reason_create_date",
+                                        "visit_reason_deleted_flag",
+                                        "is_preadmission"]}}
         row_hash = compute_visit_hash(row)
         visit_rows.append(tuple(row.values()) + (row_hash,))
 
@@ -128,7 +140,8 @@ def load_to_postgresql(**kwargs):
 
     for m in measure_data:
         pid = ipp_to_id.get(m["ipp_ocr"])
-        if not pid: continue
+        if not pid:
+            continue
         row = {
             "patient_id": pid,
             "measure_date": m.get("measure_date"),
@@ -138,7 +151,8 @@ def load_to_postgresql(**kwargs):
             "measure_type": m.get("measure_type"),
             "measure_value": m.get("measure_value"),
         }
-        row_hash = hashlib.sha256("|".join([str(v or "") for v in row.values()]).encode("utf-8")).hexdigest()
+        row_hash = hashlib.sha256(
+            "|".join([str(v or "") for v in row.values()]).encode("utf-8")).hexdigest()
         row["measure_hash"] = row_hash
 
         if row_hash not in seen_hashes:
@@ -177,4 +191,3 @@ def load_to_postgresql(**kwargs):
     logging.info("Chargement terminé")
     cur.close()
     conn.close()
-

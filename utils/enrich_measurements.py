@@ -2,11 +2,13 @@ from collections import defaultdict
 from datetime import datetime
 import hashlib
 
+
 def float_or_none(value):
     try:
         return float(value)
-    except:
+    except BaseException:
         return None
+
 
 def enrich_measure_data(measure_data):
     """
@@ -91,7 +93,8 @@ def enrich_measure_data(measure_data):
     for key, values in grouped.items():
         poids = values.get("poids")
         taille = values.get("taille")
-        imc_calcule = round(poids / ((taille / 100) ** 2), 3) if poids and taille else None
+        imc_calcule = round(poids / ((taille / 100) ** 2),
+                            3) if poids and taille else None
 
         line = {
             "patient_id": values["patient_id"],
@@ -106,15 +109,14 @@ def enrich_measure_data(measure_data):
             "score_oms": values.get("score_oms"),
             "score_karnofsky": values.get("score_karnofsky"),
             "first_line_oms_score": (
-                first_oms_map.get(values["patient_id"]) if values.get("score_oms") is not None else None
-            )
-        }
+                first_oms_map.get(
+                    values["patient_id"]) if values.get("score_oms") is not None else None)}
 
         # hash unique
-        hash_str = hashlib.sha256("|".join([str(line[k] or "") for k in line]).encode("utf-8")).hexdigest()
+        hash_str = hashlib.sha256(
+            "|".join([str(line[k] or "") for k in line]).encode("utf-8")).hexdigest()
         if hash_str not in seen_hashes:
             seen_hashes.add(hash_str)
             enriched_rows.append(tuple(line.values()) + (hash_str,))
 
     return enriched_rows
-

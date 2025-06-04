@@ -38,6 +38,7 @@ dag = DAG(
     """
 )
 
+
 def etl_chimio(**kwargs):
     logging.info("[ETL Chimio]  Démarrage du processus complet.")
 

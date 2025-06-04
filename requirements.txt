@@ -9,3 +9,4 @@ pandas==2.2.3
 # Dev/test tools
 pytest==8.2.1
 flake8==7.0.0
+autopep8==2.3.2

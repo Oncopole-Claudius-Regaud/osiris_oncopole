@@ -25,8 +25,10 @@ def connect_to_iris():
     db_info = credentials['database']
 
     connection = pyodbc.connect(
-        f"DSN={db_info['dsn']};UID={db_info['username']};PWD={db_info['password']}"
-    )
+        f"DSN={
+            db_info['dsn']};UID={
+            db_info['username']};PWD={
+                db_info['password']}")
     connection.setdecoding(pyodbc.SQL_CHAR, encoding='utf-8')
     connection.setdecoding(pyodbc.SQL_WCHAR, encoding='utf-8')
     connection.setencoding(encoding='utf-8')
