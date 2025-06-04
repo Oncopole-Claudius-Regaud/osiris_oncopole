@@ -1,33 +1,12 @@
-name: ETL Oncopole CI
+name: ETL Oncopole CI + Deploy
 
 on:
   push:
-    branches: [ develop ]
-  pull_request:
     branches: [ main ]
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.12'
-
-      - name: Install flake8
-        run: |
-          python -m pip install --upgrade pip
-          pip install flake8
-
-      - name: Run flake8
-        run: |
-          flake8 . --exclude=__pycache__,config,utils/patients.py --max-line-length=120
-
-  test:
+  lint-and-test:
+    name: Lint & Test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -42,10 +21,50 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest
+          pip install flake8 pytest
 
-      - name: Run pytest
+      - name: Lint with flake8
+        run: flake8 . --exclude=__pycache__,config,utils/patients.py --max-line-length=120
+
+      - name: Run tests with pytest
         run: |
           export PYTHONPATH="${PYTHONPATH}:$(pwd)"
           if [ -d "tests" ]; then pytest tests/; else echo "No tests directory."; fi
+
+  deploy:
+    name: Deploy to Airflow Server
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Copy DAGs via SSH
+        uses: appleboy/scp-action@v0.1.4
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "dags/*,utils/*,sql/*"
+          target: "~/airflow/dags"
+
+      - name: Clean up remote dags/ folder
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            rm -rf ~/airflow/dags/*
+
+      - name: Restart Airflow (optional)
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            sudo systemctl restart airflow-webserver
+            sudo systemctl restart airflow-scheduler
 
