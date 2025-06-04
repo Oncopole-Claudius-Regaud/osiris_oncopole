@@ -47,9 +47,10 @@ jobs:
 
       - name: Copier les fichiers du projet vers le dossier Airflow
         run: |
-          cp -r dags/* ~/airflow/dags/
+          cp -r * ~/airflow/dags/
           cp -r utils ~/airflow/dags/
           cp -r sql ~/airflow/dags/
+          cp etl_*.py ~/airflow/dags/
           cp requirements.txt ~/airflow/dags/
       
       - name: Redémarrer Airflow
