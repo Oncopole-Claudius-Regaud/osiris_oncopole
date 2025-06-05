@@ -52,8 +52,8 @@ jobs:
 
       - name: Restart Airflow
         run: |
-          sudo systemctl restart airflow-webserver
-          sudo systemctl restart airflow-scheduler
+          sudo /bin/systemctl restart airflow-webserver.service
+          sudo /bin/systemctl restart airflow-scheduler.service
 
       - name: Afficher le chemin courant
         run: |
