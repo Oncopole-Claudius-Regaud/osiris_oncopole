@@ -23,8 +23,8 @@ jobs:
           export LD_LIBRARY_PATH=/opt/oracle/instantclient_23_7:$LD_LIBRARY_PATH
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install apache-airflow==2.10.4
           pip install flake8 pytest
+          pip install apache-airflow-providers-postgres
 
       - name: Lint with flake8
         run: flake8 . --exclude=__pycache__,config,utils/patients.py --max-line-length=120
