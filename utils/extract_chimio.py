@@ -20,7 +20,7 @@ def extract_data_from_oracle(query_input):
     cursor = conn.cursor()
 
     if query_input.strip().lower().endswith(".sql"):
-        sql = load_sql(f"sql/{query_input}")
+        sql = load_sql(query_input)
     else:
         sql = query_input
 
@@ -49,7 +49,7 @@ def extract_chimio_data():
     patient_list_sql = ", ".join(f"'{p}'" for p in patient_ids)
 
     # Lignes de traitement
-    sql_template = load_sql("sql/extract_treatment_line.sql")
+    sql_template = load_sql("extract_treatment_line.sql")
     sql = sql_template.format(patient_list=patient_list_sql)
     df_treatment = extract_data_from_oracle(sql)
     df_treatment = clean_dataframe(
@@ -57,6 +57,17 @@ def extract_chimio_data():
             "start_date", "end_date"])
     df_treatment = enrich_with_patient_id(
         df_treatment, patients_df, join_key='noobspat')
+
+    expected_cols = [
+        "patient_id", "noobspat", "treatment_line_number", "treatment_label",
+        "treatment_comment", "protocol_name", "protocol_detail", "protocol_category",
+        "protocol_type", "local_code", "valid_protocol", "start_date", "end_date",
+        "nb_cycles", "radiation"
+    ]
+    actual_cols = df_treatment.columns.tolist()
+    missing = set(expected_cols) - set(actual_cols)
+    print(" Colonnes manquantes dans df_treatment :", missing)
+
     df_treatment, hash_col_treatment = remove_duplicates_and_hash(df_treatment, [
         "patient_id", "noobspat", "treatment_line_number", "treatment_label",
         "treatment_comment", "protocol_name", "protocol_detail", "protocol_category",

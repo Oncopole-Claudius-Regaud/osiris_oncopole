@@ -11,7 +11,7 @@ def extract_patient_data(cursor):
     patient_ids = get_patient_ids()
     patient_list_sql = ", ".join(f"'{pid}'" for pid in patient_ids)
 
-    sql_template = load_sql("sql/extract_patients.sql")
+    sql_template = load_sql("extract_patients.sql")
     sql = sql_template.format(patient_list=patient_list_sql)
 
     cursor.execute(sql)
@@ -60,7 +60,7 @@ def extract_admission_data(cursor):
     patient_ids = get_patient_ids()
     patient_list_sql = ", ".join(f"'{pid}'" for pid in patient_ids)
 
-    sql_template = load_sql("sql/extract_visits.sql")
+    sql_template = load_sql("extract_visits.sql")
     sql = sql_template.format(patient_list=patient_list_sql)
 
     cursor.execute(sql)
@@ -97,7 +97,7 @@ def extract_measure_data(cursor):
     patient_ids = get_patient_ids()
     patient_list_sql = ", ".join(f"'{pid}'" for pid in patient_ids)
 
-    sql_template = load_sql("sql/extract_measurements.sql")
+    sql_template = load_sql("extract_measurements.sql")
     sql = sql_template.format(patient_list=patient_list_sql)
 
     cursor.execute(sql)

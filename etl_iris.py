@@ -34,7 +34,7 @@ default_args = {
 
 # Création du DAG
 dag = DAG(
-    'etl_iris',
+    'etl_iris_data',
     default_args=default_args,
     description='Extraction de IRIS ODBC et chargement dans PostgreSQL',
     schedule_interval=None,

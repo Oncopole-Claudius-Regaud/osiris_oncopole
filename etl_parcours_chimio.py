@@ -20,7 +20,7 @@ default_args = {
 }
 
 dag = DAG(
-    dag_id='etl_chimio',
+    dag_id='etl_chimio_data',
     default_args=default_args,
     schedule_interval=None,
     catchup=False,

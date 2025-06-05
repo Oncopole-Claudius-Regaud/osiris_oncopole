@@ -64,14 +64,17 @@ def remove_duplicates_and_hash(df, cols_to_hash):
     """
     hash_col = "record_hash"
 
-    # Remplace les NaN par une chaîne vide pour concaténation sûre
-    df[hash_col] = df[cols_to_hash].fillna(
-        "").astype(str).agg("|".join, axis=1)
+    # Vérifie que toutes les colonnes y sont
+    missing_cols = set(cols_to_hash) - set(df.columns)
+    if missing_cols:
+        raise ValueError(f"Colonnes manquantes dans le DataFrame : {missing_cols}")
 
-    # Applique le hash
-    df[hash_col] = df[hash_col].apply(
-        lambda x: hashlib.sha256(
-            x.encode("utf-8")).hexdigest())
+    # Concatène chaque ligne en une seule chaîne puis hashe
+    def row_to_hash(row):
+        concat_str = "|".join(str(row[col]) if pd.notna(row[col]) else "" for col in cols_to_hash)
+        return hashlib.sha256(concat_str.encode("utf-8")).hexdigest()
+
+    df[hash_col] = df.apply(row_to_hash, axis=1)
 
     # Supprime les doublons selon le hash
     df = df.drop_duplicates(subset=[hash_col])
