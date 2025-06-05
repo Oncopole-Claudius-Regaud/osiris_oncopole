@@ -49,4 +49,3 @@ def test_postgres_connection():
         assert result[0] == 1
     except Exception as e:
         pytest.fail(f"Échec de la connexion PostgreSQL: {e}")
-
