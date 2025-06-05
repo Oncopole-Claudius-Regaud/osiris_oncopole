@@ -1,7 +1,13 @@
+import os
 import pytest
 from utils.db import connect_to_iris, connect_to_oracle, get_postgres_hook
 
+# Détecte si credentials.yml est disponible (fichier sensible non versionné)
+CREDENTIALS_PATH = os.path.join(os.path.dirname(__file__), '../config/credentials.yml')
+SKIP_DB_TESTS = not os.path.exists(CREDENTIALS_PATH)
 
+
+@pytest.mark.skipif(SKIP_DB_TESTS, reason="credentials.yml manquant, test ignoré")
 def test_iris_connection():
     try:
         conn = connect_to_iris()
@@ -18,6 +24,7 @@ def test_iris_connection():
             pass
 
 
+@pytest.mark.skipif(SKIP_DB_TESTS, reason="credentials.yml manquant, test ignoré")
 def test_oracle_connection():
     try:
         conn = connect_to_oracle()
@@ -34,6 +41,7 @@ def test_oracle_connection():
             pass
 
 
+@pytest.mark.skipif(SKIP_DB_TESTS, reason="credentials.yml manquant, test ignoré")
 def test_postgres_connection():
     try:
         hook = get_postgres_hook()
@@ -41,3 +49,4 @@ def test_postgres_connection():
         assert result[0] == 1
     except Exception as e:
         pytest.fail(f"Échec de la connexion PostgreSQL: {e}")
+
