@@ -33,7 +33,6 @@ graph TD
   B4 --> B43[sql_loader.py]
   B6 --> B61[test_connections.py]
   B6 --> B62[test_transform.py]
-  A --> C[patients.py]
   A --> D[airflow.cfg, webserver_config.py]
   A --> E[logs/, backups/]
 ```
