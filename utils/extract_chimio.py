@@ -4,7 +4,7 @@ import logging
 from utils.db import get_postgres_hook, connect_to_oracle
 from utils.sql_loader import load_sql
 from utils.patients import get_patient_ids
-from utils.transform import (
+from utils.transform_chimio import (
     clean_dataframe,
     enrich_with_patient_id,
     remove_duplicates_and_hash,

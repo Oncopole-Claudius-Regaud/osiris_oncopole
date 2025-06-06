@@ -1,6 +1,6 @@
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 import logging
-from utils.transform import clean_int
+from utils.transform_chimio import clean_int
 import pandas as pd
 
 
