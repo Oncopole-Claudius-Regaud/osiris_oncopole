@@ -1,5 +1,5 @@
 import pandas as pd
-from utils.transform import clean_dataframe
+from utils.transform_chimio import clean_dataframe
 
 
 def test_clean_dataframe_removes_bad_dates():
