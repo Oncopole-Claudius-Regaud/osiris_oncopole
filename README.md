@@ -73,6 +73,16 @@ flake8 . --exclude=__pycache__,config,utils/patients.py --max-line-length=120
 ---
 
 ##  CI/CD GitHub Actions
+
+```graph TD
+  A[Commit / Push GitHub] --> B[GitHub Actions déclenche le workflow CI]
+  B --> C[Installation des dépendances]
+  C --> D[Linter : flake8 vérifie la qualité du code]
+  C --> E[Test : pytest vérifie les connexions BDD]
+  E --> F[Résultat du test : succès ou échec]
+  F --> G[Déploiement sur la VM (via GitHub Runner auto-hébergé)]
+  G --> H[Redémarrage de Airflow (webserver + scheduler)]
+```
 Le pipeline CI effectue :
 
 - Linting Python (flake8)
