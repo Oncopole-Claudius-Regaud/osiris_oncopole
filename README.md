@@ -95,9 +95,9 @@ Le pipeline CI effectue :
 
 ##  👨‍💻 Auteur
 
-Djouldé Barry
+© Djouldé Barry
 
-IUCT Oncopole - Pôle Data&IA
+IUCT Oncopole 2025 - Pôle Data&IA
 
 ✉️ Contact interne / GitHub IUCT
 
