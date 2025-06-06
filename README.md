@@ -5,12 +5,36 @@ Ce projet est un pipeline de traitement de données cliniques basé sur le modè
 
 ##  Fonctionnalités principales
 
--  ETL automatisé via Airflow (IRIS ➝ PostgreSQL & Oracle ➝ PostgreSQL)
--  Modélisation alignée OSIRIS RWD (Patient, Measure, Condition, TreatmentLine, etc.)
--  Détection et journalisation des cas manquants (patients non retrouvés ou sans traitements)
+-  ETL automatisé via Airflow (IRIS ➝ PostgreSQL & Oracle ➝ PostgreSQL) |
+-  Modélisation alignée OSIRIS RWD (Patient, Measure, Condition, TreatmentLine, etc.) |
+-  Détection et journalisation des cas manquants (patients non retrouvés ou sans traitements) |
+-  Tests unitaires | Connexions, transformations, vérifications de duplications |
+-  CI GitHub Actions | Linting (flake8), tests automatiques |
 -  Intégration future vers de la BI (Analytiques)
 
 ---
+
+## Arborescence du projet
+
+```mermaid
+graph TD
+  A[airflow/] --> B[dags/]
+  B --> B1[etl_iris.py]
+  B --> B2[etl_parcours_chimio.py]
+  B --> B3[requirements.txt]
+  B --> B4[utils/]
+  B --> B5[sql/]
+  B --> B6[tests/]
+  B --> B7[config/]
+  B4 --> B41[db.py]
+  B4 --> B42[transform.py]
+  B4 --> B43[sql_loader.py]
+  B6 --> B61[test_connections.py]
+  B6 --> B62[test_transform.py]
+  A --> C[patients.py]
+  A --> D[airflow.cfg, webserver_config.py]
+  A --> E[logs/, backups/]
+```
 
 ##  Stack technique
 
@@ -19,40 +43,47 @@ Ce projet est un pipeline de traitement de données cliniques basé sur le modè
 -  **Oracle + IRIS + PostgreSQL**
 -  **Pandas / cx_Oracle / psycopg2**
 -  **GIT + SSH**
--  (Prochainement : tests unitaires)
+-  GitHub Actions pour CI
 
 ---
 
-##  Structure du projet
-
-.
-├── credentials.yml
-├── docs
-│   └── OSIRIS RWD_GT2_MODELE_2025.05.14.png
-├── extract_chimio.py
-├── osiris.py
-├── requete_finale.sql
-└── utils
-    └── enrich_measurements.py
-
----
-
-##  Lancer le pipeline
+##  Installation
 
 ```bash
 # 1. Activer l'environnement
 source airflow_env/bin/activate
 
-# 2. Démarrer Airflow
+# 2. Installer les dépendances
+pip install -r dags/requirements.txt
+
+# 3. Démarrer Airflow
+airflow db init
 airflow scheduler &
-airflow webserver &
+airflow webserver --port 8082 &
 ```
 ---
 
+##  Lancer les tests
+```bash
+cd dags/
+pytest tests/
+flake8 . --exclude=__pycache__,config,utils/patients.py --max-line-length=120
+```
+---
+
+##  CI/CD GitHub Actions
+Le pipeline CI effectue :
+
+- Linting Python (flake8)
+- Tests unitaires de connexion (IRIS, Oracle, PostgreSQL)
+- Gestion conditionnelle du fichier credentials.yml
+- Installation dynamique des dépendances système
+-  Redémarrage automatique d’Airflow via systemd
+
 ##  Sécurité & Confidentialité
 
-Aucun fichier contenant des données sensibles ou identifiants patients ne doit être versionné.
-Le fichier credentials.yml est ignoré via .gitignore.
+- Aucun fichier contenant des données sensibles ou identifiants patients ne doit être versionné.
+- Le fichier config/credentials.yml est exclu via .gitignore.
 
 ---
 
@@ -63,3 +94,8 @@ Le fichier credentials.yml est ignoré via .gitignore.
 ##  👨‍💻 Auteur
 
 Djouldé Barry
+
+IUCT Oncopole - Pôle Data&IA
+
+✉️ Contact interne / GitHub IUCT
+
