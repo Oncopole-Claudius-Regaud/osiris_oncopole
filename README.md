@@ -72,17 +72,14 @@ flake8 . --exclude=__pycache__,config,utils/patients.py --max-line-length=120
 ```
 ---
 
-##  CI/CD GitHub Actions
+## CI/CD GitHub Actions
 
-```graph TD
-  A[Commit / Push GitHub] --> B[GitHub Actions déclenche le workflow CI]
-  B --> C[Installation des dépendances]
-  C --> D[Linter : flake8 vérifie la qualité du code]
-  C --> E[Test : pytest vérifie les connexions BDD]
-  E --> F[Résultat du test : succès ou échec]
-  F --> G[Déploiement sur la VM (via GitHub Runner auto-hébergé)]
-  G --> H[Redémarrage de Airflow (webserver + scheduler)]
-```
+Voici le diagram de flux de déploiement automatique du projet :
+
+<p align="center">
+  <img src="docs/cicd.png" alt="Diagramme CI/CD" width="600"/>
+</p>
+
 Le pipeline CI effectue :
 
 - Linting Python (flake8)
@@ -90,6 +87,7 @@ Le pipeline CI effectue :
 - Gestion conditionnelle du fichier credentials.yml
 - Installation dynamique des dépendances système
 -  Redémarrage automatique d’Airflow via systemd
+
 
 ##  Sécurité & Confidentialité
 
