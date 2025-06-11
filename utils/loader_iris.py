@@ -1,25 +1,20 @@
 import logging
 import hashlib
-from utils.db import load_credentials
 from utils.helpers import compute_condition_hash, compute_visit_hash
 from psycopg2.extras import execute_values
 from utils.enrich_measurements import enrich_measure_data
-import psycopg2
+from airflow.providers.postgres.hooks.postgres import PostgresHook
+from airflow.models import Variable
 
 
 def load_to_postgresql(**kwargs):
     logging.info("Début du chargement dans PostgreSQL")
+    # Connexion dynamique via Variable Airflow
+    conn_id = Variable.get("target_pg_conn_id", default_var="postgres_test")
+    logging.info(f"[ETL] Utilisation de la connexion PostgreSQL : {conn_id}")
+    pg_hook = PostgresHook(postgres_conn_id=conn_id)
 
-    credentials = load_credentials("credentials.yml")
-    pg_config = credentials['database']['postgresql']
-
-    conn = psycopg2.connect(
-        host=pg_config['host'],
-        port=pg_config['port'],
-        user=pg_config['user'],
-        password=pg_config['password'],
-        database=pg_config['database']
-    )
+    conn = pg_hook.get_conn()
     cur = conn.cursor()
 
     # Récupération du référentiel CIM10
@@ -29,7 +24,7 @@ def load_to_postgresql(**kwargs):
 
     ti = kwargs['ti']
     patient_data, admission_data, measure_data = ti.xcom_pull(
-        task_ids='extract_data_from_iris_osiris')
+        task_ids='extract_data_from_iris')
 
     # --- PATIENT ---
     unique_patients = {

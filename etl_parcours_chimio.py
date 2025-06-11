@@ -5,18 +5,20 @@ import logging
 
 from utils.extract_chimio import extract_chimio_data
 from utils.transform_chimio import transform_all
+from utils.email_notifier import notify_success, notify_failure
 
 from utils.loader_chimio import (
     load_treatment_lines,
-    load_treatment_cycles,
     load_drug_administrations
 )
 
 default_args = {
     'owner': 'DATA-IA',
     'start_date': datetime(2024, 1, 1),
-    'retries': 1,
-    'email_on_failure': False
+    'email': ['data.alerte@iuct-oncopole.fr'],
+    'email_on_failure': False,
+    'email_on_retry': False,
+    'retries': 1
 }
 
 dag = DAG(
@@ -44,18 +46,17 @@ def etl_chimio(**kwargs):
 
     # Étape 1 : Extraction
     logging.info("[ETL Chimio] 1- Extraction des données Oracle...")
-    treatment_df, cycles_df, drugs_df = extract_chimio_data()
+    treatment_df, drugs_df = extract_chimio_data()
 
     # Étape 2 : Transformation
     logging.info("[ETL Chimio] 2 - Transformation des données...")
-    treatment_clean, cycles_clean, drugs_clean = transform_all(
-        treatment_df, cycles_df, drugs_df
+    treatment_clean, drugs_clean = transform_all(
+        treatment_df, drugs_df
     )
 
     # Étape 3 : Chargement
     logging.info("[ETL Chimio] 3- Chargement dans PostgreSQL...")
     load_treatment_lines(treatment_clean)
-    load_treatment_cycles(cycles_clean)
     load_drug_administrations(drugs_clean)
 
     logging.info("[ETL Chimio]  ETL terminé avec succès.")
@@ -65,5 +66,7 @@ etl_task = PythonOperator(
     task_id='etl_chimio_complete',
     python_callable=etl_chimio,
     provide_context=True,
+    on_failure_callback=notify_failure,
     dag=dag
 )
+

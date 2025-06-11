@@ -2,10 +2,12 @@ from airflow.providers.postgres.hooks.postgres import PostgresHook
 import logging
 from utils.transform_chimio import clean_int
 import pandas as pd
+from airflow.models import Variable
 
 
 def load_treatment_lines(df):
-    postgres = PostgresHook(postgres_conn_id="postgres_chimio")
+    conn_id = Variable.get("target_pg_conn_id", default_var="postgres_test")
+    postgres = PostgresHook(postgres_conn_id=conn_id)
 
     for _, row in df.iterrows():
 
@@ -52,43 +54,9 @@ def load_treatment_lines(df):
     logging.info(f"{len(df)} lignes de traitement insérées.")
 
 
-def load_treatment_cycles(df):
-    postgres = PostgresHook(postgres_conn_id="postgres_chimio")
-    df = df.where(pd.notnull(df), None)
-
-    for _, row in df.iterrows():
-
-        start_date = row['start_date']
-        end_date = row['end_date']
-
-        # Convertir NaT en None
-        if pd.isna(start_date):
-            start_date = None
-        if pd.isna(end_date):
-            end_date = None
-
-        postgres.run(
-            """
-            INSERT INTO osiris.treatment_cycle (
-                patient_id, noobspat, cycle_number, start_date, end_date, record_hash
-            )
-            VALUES (%s, %s, %s, %s, %s, %s)
-            ON CONFLICT (record_hash) DO NOTHING
-            """,
-            parameters=(
-                row["patient_id"],
-                row["noobspat"],
-                row["cycle_number"],
-                start_date,
-                end_date,
-                row["record_hash"]
-            )
-        )
-    logging.info(f"{len(df)} cycles insérés.")
-
-
 def load_drug_administrations(df):
-    postgres = PostgresHook(postgres_conn_id="postgres_chimio")
+    conn_id = Variable.get("target_pg_conn_id", default_var="postgres_test")
+    postgres = PostgresHook(postgres_conn_id=conn_id)
     df = df.where(pd.notnull(df), None)
 
     for _, row in df.iterrows():

@@ -37,7 +37,7 @@ def extract_data_from_oracle(query_input):
 def extract_chimio_data():
     """
     Étape d'extraction + nettoyage + enrichissement des données depuis Oracle.
-    Renvoie 3 DataFrames : lignes de traitement, cycles, médicaments.
+    Renvoie 2 DataFrames : lignes de traitement, médicaments.
     """
     logging.info("[1] Extraction & préparation des données chimiothérapie")
 
@@ -80,31 +80,6 @@ def extract_chimio_data():
         "osiris.treatment_line",
         hash_col_treatment)
 
-    # Cycles
-    df_cycles = extract_data_from_oracle("extract_cycle.sql")
-    df_cycles = clean_dataframe(
-        df_cycles, date_columns=[
-            "start_date", "end_date"])
-
-    # Agréger par noobspat + cycle_number
-    df_cycles = df_cycles[df_cycles['noobspat'].notna() &
-                          df_cycles['cycle_number'].notna()]
-    df_cycles = df_cycles.groupby(['noobspat', 'cycle_number']).agg({
-        'start_date': 'min',
-        'end_date': 'max'
-    }).reset_index()
-
-    df_cycles = enrich_with_patient_id(
-        df_cycles, patients_df, join_key='noobspat')
-    df_cycles, hash_col_cycle = remove_duplicates_and_hash(df_cycles, [
-        "patient_id", "noobspat", "cycle_number", "start_date", "end_date"
-    ])
-    df_cycles = filter_existing_records(
-        df_cycles,
-        postgres,
-        "osiris.treatment_cycle",
-        hash_col_cycle)
-
     # Médicaments
     df_drugs = extract_data_from_oracle("extract_drug.sql")
     df_drugs = clean_dataframe(
@@ -123,4 +98,4 @@ def extract_chimio_data():
         "osiris.drug_administration",
         hash_col_drug)
 
-    return df_treatment, df_cycles, df_drugs
+    return df_treatment, df_drugs

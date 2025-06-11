@@ -14,9 +14,6 @@ unittest.cfg
 .env
 *.env
 
-# Secrets
-config/credentials.yml
-
 # IDEs
 .vscode/
 .idea/

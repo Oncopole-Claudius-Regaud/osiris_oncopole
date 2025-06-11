@@ -3,32 +3,20 @@ import yaml
 import pyodbc
 import cx_Oracle
 from airflow.providers.postgres.hooks.postgres import PostgresHook
+from airflow.hooks.base import BaseHook
+from airflow.models import Variable
 
 
-# Chargement des credentials depuis un fichier YAML
-def load_credentials(filename="credentials.yml"):
-    """
-    Charge les identifiants de connexion depuis le fichier de configuration YAML.
-    """
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    config_path = os.path.join(script_dir, "..", "config", filename)
-    with open(config_path, 'r') as f:
-        return yaml.safe_load(f)
-
-
-# Connexion IRIS via ODBC
 def connect_to_iris():
     """
-    Établit une connexion à la base IRIS via ODBC (pyodbc).
+    Connexion à IRIS via ODBC en utilisant la connexion Airflow.
     """
-    credentials = load_credentials()
-    db_info = credentials['database']
+    conn = BaseHook.get_connection("iris_odbc")  # Conn ID défini dans Airflow
+    dsn = conn.host  # ou conn.extra_dejson.get("dsn") si tu le stockes dans Extra
 
     connection = pyodbc.connect(
-        f"DSN={
-            db_info['dsn']};UID={
-            db_info['username']};PWD={
-                db_info['password']}")
+        f"DSN={dsn};UID={conn.login};PWD={conn.password}"
+    )
     connection.setdecoding(pyodbc.SQL_CHAR, encoding='utf-8')
     connection.setdecoding(pyodbc.SQL_WCHAR, encoding='utf-8')
     connection.setencoding(encoding='utf-8')
@@ -38,31 +26,24 @@ def connect_to_iris():
 
 # Connexion Oracle via cx_Oracle
 def connect_to_oracle():
-    """
-    Initialise Oracle Client et établit une connexion Oracle (cx_Oracle).
-    """
-    credentials = load_credentials()
-    ora_conf = credentials['database']['oracle']
+    conn = BaseHook.get_connection("oracle_conn")
+    lib_dir = conn.extra_dejson.get("lib_dir", "/opt/oracle/instantclient_23_7")
 
-    # Initialisation du client Oracle
     try:
-        cx_Oracle.init_oracle_client(lib_dir="/opt/oracle/instantclient_23_7")
+        cx_Oracle.init_oracle_client(lib_dir=lib_dir)
     except cx_Oracle.ProgrammingError:
-        # Client déjà initialisé -> ignorer l'erreur
-        pass
+        pass  # Already initialized
 
-    conn = cx_Oracle.connect(
-        ora_conf['user'],
-        ora_conf['password'],
-        ora_conf['dsn'],
-        encoding=ora_conf.get('encoding', 'UTF-8')
+    return cx_Oracle.connect(
+        conn.login,
+        conn.password,
+        conn.host,
+        encoding='UTF-8'
     )
-    return conn
 
 
-# Hook PostgreSQL Airflow
-def get_postgres_hook(conn_id='postgres_chimio'):
-    """
-    Retourne un PostgresHook Airflow pour exécuter des requêtes PostgreSQL.
-    """
+def get_postgres_hook(conn_id=None):
+    if not conn_id:
+        conn_id = Variable.get("target_pg_conn_id", default_var="postgres_test")
     return PostgresHook(postgres_conn_id=conn_id)
+
