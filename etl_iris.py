@@ -1,25 +1,23 @@
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from datetime import datetime, timedelta
-
 from utils.db import connect_to_iris
 from utils.extract import extract_all_data
 from utils.loader_iris import load_to_postgresql
 from utils.logger import configure_logger
-from utils.email_notifier import notify_success, notify_failure
+from utils.email_notifier import notify_failure
 
 
 # Configuration du logger au lancement
 configure_logger()
 
-# Définition de la fonction d'extraction
 
+# Définition de la fonction d'extraction
 def extract_data_from_iris_osiris(**kwargs):
     conn = connect_to_iris()
     cursor = conn.cursor()
     patient_data, admission_data, measure_data = extract_all_data(cursor)
     return patient_data, admission_data, measure_data
-
 
 # Définir les arguments de base du DAG
 default_args = {

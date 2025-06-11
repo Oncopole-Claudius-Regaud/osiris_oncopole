@@ -1,5 +1,3 @@
-import os
-import yaml
 import pyodbc
 import cx_Oracle
 from airflow.providers.postgres.hooks.postgres import PostgresHook
@@ -46,4 +44,3 @@ def get_postgres_hook(conn_id=None):
     if not conn_id:
         conn_id = Variable.get("target_pg_conn_id", default_var="postgres_test")
     return PostgresHook(postgres_conn_id=conn_id)
-

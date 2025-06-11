@@ -59,4 +59,3 @@ def notify_failure(context):
     """
 
     send_email(to=RECIPIENTS, subject=subject, html_content=body)
-
