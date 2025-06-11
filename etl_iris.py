@@ -19,6 +19,7 @@ def extract_data_from_iris_osiris(**kwargs):
     patient_data, admission_data, measure_data = extract_all_data(cursor)
     return patient_data, admission_data, measure_data
 
+
 # Définir les arguments de base du DAG
 default_args = {
     'owner': 'DATA-IA',
@@ -30,6 +31,7 @@ default_args = {
     'retry_delay': timedelta(minutes=5)
 }
 
+
 # Création du DAG
 dag = DAG(
     'etl_iris_data',
@@ -38,6 +40,7 @@ dag = DAG(
     schedule_interval=None,
     catchup=False
 )
+
 
 # Tâche d'extraction
 extract_task = PythonOperator(
@@ -49,6 +52,7 @@ extract_task = PythonOperator(
     dag=dag
 )
 
+
 # Tâche de chargement
 load_task = PythonOperator(
     task_id='load_to_postgresql',
@@ -57,6 +61,7 @@ load_task = PythonOperator(
     on_failure_callback=notify_failure,
     dag=dag
 )
+
 
 # Ordre d'exécution
 extract_task >> load_task
