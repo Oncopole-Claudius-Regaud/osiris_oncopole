@@ -2,7 +2,6 @@ import os
 import pytest
 from utils.db import connect_to_iris, connect_to_oracle, get_postgres_hook
 
-# Détecte si credentials.yml est disponible (fichier sensible non versionné)
 CREDENTIALS_PATH = os.path.join(os.path.dirname(__file__), '../config/credentials.yml')
 SKIP_DB_TESTS = not os.path.exists(CREDENTIALS_PATH)
 

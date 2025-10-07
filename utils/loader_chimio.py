@@ -5,39 +5,66 @@ import pandas as pd
 from airflow.models import Variable
 
 
+def _is_valid_ipp(val):
+    """
+    Vérifie si un ipp_ocr est valide :
+    - non nul
+    - non vide
+    - différent de -1
+    """
+    if val is None:
+        return False
+    s = str(val).strip()
+    if s == "" or s == "-1" or s.lower() in ("nan", "none", "null"):
+        return False
+    return True
+
+
+def _to_none_if_nat(value):
+    """Convertit NaT/NaN en None pour insertion SQL."""
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+    return value
+
+
 def load_treatment_lines(df):
     conn_id = Variable.get("target_pg_conn_id", default_var="postgres_test")
     postgres = PostgresHook(postgres_conn_id=conn_id)
 
+    inserted = 0
     for _, row in df.iterrows():
+        ipp_value = row.get("noobspat") or row.get("ipp_ocr")
 
-        start_date = row['start_date']
-        end_date = row['end_date']
+        # skip si l'IPP est invalide
+        if not _is_valid_ipp(ipp_value):
+            logging.warning("Ligne ignorée (IPP invalide) : %s", ipp_value)
+            continue
 
-        # Convertir NaT en None
-        if pd.isna(start_date):
-            start_date = None
-        if pd.isna(end_date):
-            end_date = None
+        start_date = _to_none_if_nat(row.get("start_date"))
+        end_date = _to_none_if_nat(row.get("end_date"))
 
         postgres.run(
             """
             INSERT INTO osiris.treatment_line (
-                patient_id, noobspat, treatment_line_number, treatment_label,
+                ipp_ocr, treatment_line_number, treatment_label,
                 treatment_comment, protocol_name, protocol_detail,
                 protocol_category, protocol_type, local_code,
                 valid_protocol, start_date, end_date, nb_cycles,
                 radiation, record_hash
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (record_hash) DO NOTHING
             """,
             parameters=(
-                row["patient_id"],
-                row["noobspat"],
-                row["treatment_line_number"],
-                row["treatment_label"],
-                row["treatment_comment"],
+                ipp_value,
+                row.get("treatment_line_number"),
+                row.get("treatment_label"),
+                row.get("treatment_comment"),
                 row.get("protocol_name"),
                 row.get("protocol_detail"),
                 row.get("protocol_category"),
@@ -46,12 +73,14 @@ def load_treatment_lines(df):
                 clean_int(row.get("valid_protocol")),
                 start_date,
                 end_date,
-                row["nb_cycles"],
-                row["radiation"],
-                row["record_hash"]
-            )
+                row.get("nb_cycles"),
+                row.get("radiation"),
+                row.get("record_hash"),
+            ),
         )
-    logging.info(f"{len(df)} lignes de traitement insérées.")
+        inserted += 1
+
+    logging.info(f"{inserted} lignes de traitement insérées.")
 
 
 def load_drug_administrations(df):
@@ -59,31 +88,30 @@ def load_drug_administrations(df):
     postgres = PostgresHook(postgres_conn_id=conn_id)
     df = df.where(pd.notnull(df), None)
 
+    inserted = 0
     for _, row in df.iterrows():
+        ipp_value = row.get("noobspat") or row.get("ipp_ocr")
 
-        start_date = row['start_date']
-        end_date = row['end_date']
+        if not _is_valid_ipp(ipp_value):
+            logging.warning("Ligne ignorée (IPP invalide) : %s", ipp_value)
+            continue
 
-        # Convertir NaT en None
-        if pd.isna(start_date):
-            start_date = None
-        if pd.isna(end_date):
-            end_date = None
+        start_date = _to_none_if_nat(row.get("start_date"))
+        end_date = _to_none_if_nat(row.get("end_date"))
 
         postgres.run(
             """
             INSERT INTO osiris.drug_administration (
-                patient_id, noobspat, cycle_number, start_date, end_date,
+                ipp_ocr, cycle_number, start_date, end_date,
                 protocol_name, protocol_type, codepdt, drug_name, code_voie,
                 unite, dose_adm, is_real_drug, record_hash
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (record_hash) DO NOTHING
             """,
             parameters=(
-                row["patient_id"],
-                row["noobspat"],
-                row["cycle_number"],
+                ipp_value,
+                row.get("cycle_number"),
                 start_date,
                 end_date,
                 row.get("protocol_name"),
@@ -93,8 +121,11 @@ def load_drug_administrations(df):
                 row.get("code_voie"),
                 clean_int(row.get("unite")),
                 clean_int(row.get("dose_adm")),
-                bool(row["is_real_drug"]),
-                row["record_hash"]
-            )
+                bool(row.get("is_real_drug")),
+                row.get("record_hash"),
+            ),
         )
-    logging.info(f"{len(df)} médicaments insérés.")
+        inserted += 1
+
+    logging.info(f"{inserted} médicaments insérés.")
+

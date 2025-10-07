@@ -24,4 +24,8 @@ Thumbs.db
 
 #fichier sensible
 utils/patients.py
+sql/
+osiris/
+oeci/
+omop/
 

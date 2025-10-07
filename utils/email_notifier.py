@@ -19,7 +19,7 @@ def notify_success(context):
     <html>
       <body style="font-family: Arial, sans-serif; background-color: #e6ffed; padding: 20px;">
         <div style="border-left: 5px solid #28a745; padding-left: 15px;">
-          <h2 style="color: #28a745;">✅ Succès de la tâche Airflow</h2>
+          <h2 style="color: #28a745;"> Succès de la tâche Airflow</h2>
           <p><strong style="color: #000;">Tâche :</strong> {task_id}</p>
           <p><strong style="color: #000;">DAG :</strong> {dag_id}</p>
           <p><strong style="color: #000;">Date d’exécution (heure France) :</strong> {formatted_date}</p>
@@ -44,7 +44,7 @@ def notify_failure(context):
     <html>
       <body style="font-family: Arial, sans-serif; background-color: #fff3f3; padding: 20px;">
         <div style="border-left: 5px solid #d9534f; padding-left: 15px;">
-          <h2 style="color: #d9534f;">❌ Échec de la tâche Airflow</h2>
+          <h2 style="color: #d9534f;"> Échec de la tâche Airflow</h2>
           <p><strong style="color: #000;">Tâche :</strong> {task_id}</p>
           <p><strong style="color: #000;">DAG :</strong> {dag_id}</p>
           <p><strong style="color: #000;">Date d’exécution (heure France) :</strong> {formatted_date}</p>

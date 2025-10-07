@@ -15,9 +15,6 @@ from utils.loader_chimio import (
 default_args = {
     'owner': 'DATA-IA',
     'start_date': datetime(2024, 1, 1),
-    'email': ['data.alerte@iuct-oncopole.fr'],
-    'email_on_failure': False,
-    'email_on_retry': False,
     'retries': 1
 }
 
@@ -27,17 +24,7 @@ dag = DAG(
     schedule_interval=None,
     catchup=False,
     description='ETL Oracle -> PostgreSQL pour le parcours de chimiothérapie',
-    doc_md="""
-    ## DAG : ETL Parcours Chimio
-
-    Ce DAG effectue les étapes suivantes :
-
-    1. Extraction des données Oracle : lignes de traitement, cycles, médicaments.
-    2. Transformation : nettoyage des dates, ajout de hash, jointure avec les patients.
-    3. Chargement dans PostgreSQL : uniquement les nouvelles données sont insérées.
-
-    Ce DAG est destiné au chargement du parcours de chimiothérapie dans `un modele d'arch osiris`.
-    """
+    tags=["lymphome-data", "osiris", "chimio"],
 )
 
 
@@ -66,6 +53,5 @@ etl_task = PythonOperator(
     task_id='etl_chimio_complete',
     python_callable=etl_chimio,
     provide_context=True,
-    on_failure_callback=notify_failure,
     dag=dag
 )

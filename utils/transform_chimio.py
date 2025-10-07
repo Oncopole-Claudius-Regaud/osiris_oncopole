@@ -33,29 +33,6 @@ def generate_hash(row, columns):
     return hashlib.sha256(raw_string.encode("utf-8")).hexdigest()
 
 
-def enrich_with_patient_id(df, patients_df, join_key='noobspat'):
-    """
-    Ajoute la colonne 'patient_id' à un DataFrame Oracle en faisant la jointure avec osiris.patient.
-    """
-    merged = df.merge(
-        patients_df[['patient_id', 'ipp_ocr']],
-        how='left',
-        left_on=join_key,
-        right_on='ipp_ocr'
-    )
-
-    merged.drop(columns=['ipp_ocr'], inplace=True)
-
-    missing = merged[merged["patient_id"].isnull()]
-    if not missing.empty:
-        logging.warning(
-            f"{len(missing)} patients Oracle non trouvés dans osiris.patient.")
-        missing.to_csv("/mnt/data/patients_non_trouves.csv", index=False)
-
-    # On garde uniquement les patients avec une correspondance
-    return merged[merged["patient_id"].notnull()]
-
-
 def remove_duplicates_and_hash(df, cols_to_hash):
     """
     Supprime les doublons selon un sous-ensemble de colonnes,

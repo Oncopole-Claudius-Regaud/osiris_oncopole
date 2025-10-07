@@ -1,0 +1,224 @@
+import logging
+import hashlib
+from utils.helpers import compute_condition_hash, compute_treatment_hash, compute_visit_hash
+from psycopg2.extras import execute_values
+from airflow.providers.postgres.hooks.postgres import PostgresHook
+from airflow.models import Variable
+from airflow.stats import Stats
+import json
+import os
+from psycopg2 import sql
+
+
+def load_to_postgresql(**kwargs):
+
+
+    logging.info("Début du chargement dans PostgreSQL")
+    # Connexion dynamique via Variable Airflow
+    conn_id = Variable.get("target_pg_conn_id", default_var="postgres_test")
+    logging.info(f"[ETL] Utilisation de la connexion PostgreSQL : {conn_id}")
+    pg_hook = PostgresHook(postgres_conn_id=conn_id)
+
+    conn = pg_hook.get_conn()
+    cur = conn.cursor()
+
+    # Récupération du référentiel CIM10
+    cur.execute("SELECT code, description FROM osiris.cim10")
+    cim_reference_map = {row[0]: row[1] for row in cur.fetchall()}
+    logging.info("Référentiel CIM10 chargé")
+
+    output_dir = "/tmp/etl_iris"
+
+    with open(f"{output_dir}/patients.json", "r") as f:
+        patient_data = json.load(f)
+
+    with open(f"{output_dir}/admissions.json", "r") as f:
+        admission_data = json.load(f)
+
+    with open(f"{output_dir}/measures.json", "r") as f:
+        measure_data = json.load(f)
+
+    with open(f"{output_dir}/treatments.json", "r") as f:
+        treatment_data = json.load(f)
+
+# --- PATIENT ---
+    unique_patients = {
+        d["ipp_ocr"]: (
+            d["ipp_ocr"],
+            d["ipp_chu"],
+            d.get("gender"),
+            d.get("death_of_death"),
+            d.get("name1"),
+            d.get("name2"),
+            d.get("date_of_birth"),
+            d.get("source_of_death", "TKC")
+        ) for d in patient_data if d.get("ipp_ocr")}
+
+    if unique_patients:
+        execute_values(cur, """
+            INSERT INTO osiris.patient (ipp_ocr, ipp_chu, gender, date_of_death, name1, name2, date_of_birth, source_of_death)
+            VALUES %s
+            ON CONFLICT ON CONSTRAINT patient_ipp_ocr_unique DO NOTHING
+        """, list(unique_patients.values()))
+        conn.commit()
+        logging.info(f"{len(unique_patients)} patients insérés")
+
+    cur.execute("SELECT patient_id, ipp_ocr FROM osiris.patient")
+    ipp_to_id = {row[1]: row[0] for row in cur.fetchall()}
+
+    # --- CONDITION ---
+    condition_rows = []
+    for d in patient_data:
+        pid = ipp_to_id.get(d["ipp_ocr"])
+        if not pid:
+            continue
+        row_dict = {
+            **d,
+            "patient_id": pid,
+            "libelle_cim_reference": cim_reference_map.get(
+                d.get("condition_source_value"))}
+        row_hash = compute_condition_hash(row_dict)
+        condition_rows.append(tuple([
+            pid,
+            d.get("concept_id"),
+            d.get("condition_source_value"),
+            d.get("condition_concept_label"),
+            row_dict["libelle_cim_reference"],
+            d.get("condition_start_date"),
+            d.get("condition_end_date"),
+            d.get("condition_status"),
+            d.get("condition_deleted_flag"),
+            d.get("condition_create_date"),
+            d.get("condition_update_date"),
+            d.get("cim_created_at"),
+            d.get("cim_updated_at"),
+            d.get("cim_active_from"),
+            d.get("cim_active_to"),
+            row_hash,
+            d.get("premiere_consultation_flag"),
+            d.get("date_consultation"),
+            d.get("date_consultation_created"),
+            d.get("source", "TKC")
+        ]))
+
+    if condition_rows:
+        execute_values(cur, """
+            INSERT INTO osiris.condition (
+                patient_id, concept_id, condition_source_value, condition_concept_label,
+                libelle_cim_reference, condition_start_date, condition_end_date,
+                condition_status, condition_deleted_flag, condition_create_date,
+                condition_update_date, cim_created_at, cim_updated_at, cim_active_from,
+                cim_active_to, condition_hash, premiere_consultation_flag, date_consultation, date_consultation_created, source
+            ) VALUES %s
+            ON CONFLICT (condition_hash) DO NOTHING
+        """, condition_rows)
+        conn.commit()
+        logging.info(f"{len(condition_rows)} conditions insérées")
+
+
+    # --- TREATMENTS_TRACKER ---
+
+        for t in treatment_data:
+            row_dict = {**t}
+            row_hash = compute_treatment_hash(row_dict)
+            treatment_data.append(tuple([
+                t["ipp_ocr"],
+                t["date_debut_traitement"],
+                t.get("date_fin_traitement"),
+                t.get("dci_code"),
+                t.get("dci_libelle"),
+                t.get("forme_libelle"),
+                t.get("source", "TKC"),
+                row_hash
+            ]))
+
+        if treatment_rows:
+            execute_values(cur, """
+                INSERT INTO osiris.treatments_tracker (
+                    ipp_ocr, date_debut_traitement, date_fin_traitement,
+                    dci_code, dci_libelle, forme_libelle, source, treatment_hash
+                )
+                VALUES %s
+                ON CONFLICT (treatment_hash) DO NOTHING
+            """, treatment_rows)
+            conn.commit()
+            logging.info(f"{len(treatment_rows)} traitements insérés")
+
+
+    # --- VISIT ---
+    visit_rows = []
+    for v in admission_data:
+        pid = ipp_to_id.get(v["ipp_ocr"])
+        if not pid:
+            continue
+        row = {"patient_id": pid,
+               **{k: v.get(k) for k in ["visit_episode_id",
+                                        "visit_start_date",
+                                        "visit_start_time",
+                                        "visit_end_date",
+                                        "visit_end_time",
+                                        "visit_estimated_end_date",
+                                        "visit_estimated_end_time",
+                                        "visit_functional_unit",
+                                        "visit_type",
+                                        "visit_status",
+                                        "visit_reason",
+                                        "visit_reason_create_date",
+                                        "visit_reason_deleted_flag",
+                                        "is_preadmission"]}}
+        row_hash = compute_visit_hash(row)
+        visit_rows.append(tuple(row.values()) + (row_hash,))
+
+    if visit_rows:
+        execute_values(cur, """
+            INSERT INTO osiris.visit_occurrence (
+                patient_id, visit_episode_id, visit_start_date, visit_start_time,
+                visit_end_date, visit_end_time, visit_estimated_end_date, visit_estimated_end_time,
+                visit_functional_unit, visit_type, visit_status, visit_reason,
+                visit_reason_create_date, visit_reason_deleted_flag, is_preadmission, visit_hash
+            ) VALUES %s
+            ON CONFLICT (visit_hash) DO NOTHING
+        """, visit_rows)
+        conn.commit()
+        logging.info(f"{len(visit_rows)} visites insérées")
+
+
+    # --- RAW MEASURE ---
+    measure_rows = []
+    seen_hashes = set()
+
+    for m in measure_data:
+        pid = ipp_to_id.get(m["ipp_ocr"])
+        if not pid:
+            continue
+        row = {
+            "patient_id": pid,
+            "measure_date": m.get("measure_date"),
+            "measure_time": m.get("measure_time"),
+            "obs_update_at": m.get("obs_update_at"),
+            "code_cim": m.get("code_cim"),
+            "measure_type": m.get("measure_type"),
+            "measure_value": m.get("measure_value"),
+        }
+        row_hash = hashlib.sha256(
+            "|".join([str(v or "") for v in row.values()]).encode("utf-8")).hexdigest()
+        row["measure_hash"] = row_hash
+
+        if row_hash not in seen_hashes:
+            seen_hashes.add(row_hash)
+            measure_rows.append(tuple(row.values()))
+
+    if measure_rows:
+        execute_values(cur, """
+            INSERT INTO osiris.measure (
+                patient_id, measure_date, measure_time, obs_update_at,
+                code_cim, measure_type, measure_value, measure_hash
+            ) VALUES %s
+            ON CONFLICT (measure_hash) DO NOTHING
+        """, measure_rows)
+        conn.commit()
+        logging.info(f"{len(measure_rows)} mesures brutes insérées")
+
+    logging.info("Chargement terminé")
+    cur.close()
+    conn.close()

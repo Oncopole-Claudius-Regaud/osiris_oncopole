@@ -1,9 +1,8 @@
 import logging
 import os
 
+
 # Initialise un logger pour enregistrer les activités dans un fichier log
-
-
 def configure_logger():
     log_dir = "/home/administrateur/airflow/logs"
     os.makedirs(log_dir, exist_ok=True)
