@@ -147,7 +147,7 @@ def extract_admission_data_to_file(cursor):
                     "visit_estimated_end_time": row.visit_estimated_end_time if isinstance(row.visit_estimated_end_time, time) else None,
                     "visit_functional_unit": row.visit_functional_unit or "",
                     "visit_code_unit": row.code_unit or "",
-                    "visit_responsable_unit": row.visit_responsible_unit_desc or "",
+                    "visit_responsible_unit_desc": row.visit_responsible_unit_desc or "",
                     "visit_type": row.visit_type or "",
                     "visit_status": row.visit_status or "",
                     "visit_reason": row.visit_reason or "",
@@ -253,7 +253,6 @@ def extract_diagnostic_data_to_file(cursor):
                     # === Identifiants / dates / statuts
                     "ipp_ocr": row.ipp_ocr,
                     "diagnostic_start_date": row.date_diagnostic if _is_date_like(row.date_diagnostic) else None,
-                    "diagnostic_end_date": row.date_diagnostic_end if _is_date_like(row.date_diagnostic_end) else None,
                     "diagnostic_create_date": row.date_diagnostic_created_at if _is_date_like(row.date_diagnostic_created_at) else None,
                     "diagnostic_update_date": row.date_diagnostic_updated_at if _is_date_like(row.date_diagnostic_updated_at) else None,
                     "diagnostic_status": row.diagnostic_status or "",

@@ -13,7 +13,6 @@ JOIN SQLUser.PA_ADM adm ON madr.MRADM_ADM_DR = adm.PAADM_RowID
 JOIN SQLUser.PA_PATMAS pat ON adm.PAADM_PAPMI_DR = pat.PAPMI_RowId1
 LEFT JOIN SQLUser.PA_Problem prob ON prob.PROB_ParRef = pat.PAPMI_RowId1
 LEFT JOIN SQLUser.MRC_ICDDx MRC ON prob.PROB_ICDCode_DR = MRC.MRCID_RowId
-WHERE pat.PAPMI_No IN ({patient_list})
 AND (
     itm.ITM_Desc IN (
         'POIDS', 'TAILLE', 'INDICEDEMASSECORPORELLE',

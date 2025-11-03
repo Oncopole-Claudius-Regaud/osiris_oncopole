@@ -1,4 +1,5 @@
 import pandas as pd
+
 import logging
 from utils.db import get_postgres_hook, connect_to_oracle
 from utils.sql_loader import load_sql
@@ -21,10 +22,6 @@ def extract_data_from_oracle(query_input):
     else:
         sql = query_input
 
-    sql = sql.strip()
-    if sql.endswith(";"):
-        sql = sql[:-1]
-
     cursor.execute(sql)
     columns = [col[0].lower() for col in cursor.description]
     data = cursor.fetchall()
@@ -33,8 +30,8 @@ def extract_data_from_oracle(query_input):
     cursor.close()
     conn.close()
     return df
-
-
+	
+	
 def extract_chimio_data():
     """
     Étape d'extraction + nettoyage des données depuis Oracle.
@@ -46,29 +43,42 @@ def extract_chimio_data():
 
     # --- Lignes de traitement ---
     df_treatment = extract_data_from_oracle("extract_treatment_line.sql")
-    df_treatment = clean_dataframe(df_treatment, date_columns=["start_date", "end_date"])
 
+    # nettoyage des colonnes de date
+    df_treatment = clean_dataframe(df_treatment, date_columns=["start_date", "end_date"])
+    df_treatment.rename(
+        columns={
+            "start_date": "start_date",
+            "end_date": "end_date"
+        },
+        inplace=True
+    )
+
+    # Colonnes attendues mises à jour sans nb_cycles ni treatment_line_number
     expected_cols_treatment = [
-        "noobspat", "treatment_line_number", "treatment_label",
-        "treatment_comment", "protocol_name", "protocol_detail",
-        "protocol_category", "protocol_type", "local_code",
-        "valid_protocol", "start_date", "end_date",
-        "nb_cycles", "radiation"
+        "noobspat", "treatment_label", "treatment_comment",
+        "protocol_name", "protocol_detail", "protocol_category",
+        "protocol_type", "local_code", "valid_protocol",
+        "start_date", "end_date", "radiation",
+        "doseadm", "etat_code", "etat_label","code_cim"
     ]
     missing_treat = set(expected_cols_treatment) - set(df_treatment.columns)
     if missing_treat:
         logging.warning("Colonnes manquantes dans df_treatment : %s", sorted(missing_treat))
 
+    # dédoublonnage et hash
     df_treatment, hash_col_treatment = remove_duplicates_and_hash(
         df_treatment,
         [
-            "noobspat", "treatment_line_number", "treatment_label",
-            "treatment_comment", "protocol_name", "protocol_detail",
-            "protocol_category", "protocol_type", "local_code",
-            "valid_protocol", "start_date", "end_date",
-            "nb_cycles", "radiation"
+            "noobspat", "treatment_label", "treatment_comment",
+            "protocol_name", "protocol_detail", "protocol_category",
+            "protocol_type", "local_code", "valid_protocol",
+            "start_date", "end_date", "radiation",
+            "doseadm", "etat_code", "etat_label", "code_cim"
         ]
     )
+
+    # filtrage des lignes déjà présentes
     df_treatment = filter_existing_records(
         df_treatment, postgres, "osiris.treatment_line", hash_col_treatment
     )
@@ -94,15 +104,14 @@ def extract_chimio_data():
             "code_voie", "unite", "dose_adm", "is_real_drug"
         ]
     )
+
     df_drugs = filter_existing_records(
         df_drugs, postgres, "osiris.drug_administration", hash_col_drug
     )
 
-    # --- Log final ---
     logging.info(
         "[OK] Extraction terminée : %d lignes (treatment_line), %d lignes (drug_administration)",
         len(df_treatment), len(df_drugs)
     )
 
     return df_treatment, df_drugs
-

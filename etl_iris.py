@@ -6,17 +6,12 @@ sys.path.append(os.path.dirname(__file__))
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from airflow.decorators import task
 from airflow.stats import Stats
 
 from utils.db import connect_to_iris
 from utils.logger import configure_logger
 from utils.email_notifier import notify_failure, notify_success
 from utils.loader_iris import load_to_postgresql
-
-# Import dynamique (OK)
-import importlib
-extract_measure_batch_by_date = importlib.import_module("utils.measure_runner").extract_measure_batch_by_date
 
 # Logger global
 configure_logger()
@@ -59,9 +54,8 @@ def extract_data_from_iris_osiris(**kwargs):
         cursor = conn.cursor()
 
         # 2) Extraction en streaming (écrit .jsonl directement)
-        #    -> nécessite utils.extract.extract_all_data_streaming(...) comme on l’a proposé
         from utils.extract import extract_all_data_streaming
-        extract_all_data_streaming(cursor)  # pas de return; écrit en /tmp/etl_iris/*.jsonl
+        extract_all_data_streaming(cursor)
 
         # 3) Ferme DB et force un GC
         try:
@@ -74,36 +68,11 @@ def extract_data_from_iris_osiris(**kwargs):
             pass
 
         gc.collect()
-        return {"output_dir": TMP_DIR}  # léger (facultatif)
+        return {"output_dir": TMP_DIR}
 
     except Exception as e:
         Stats.incr("custom.task_failure.extract_data_from_iris")
         raise e
-
-
-@task
-def get_periods():
-    # Fenêtres mensuelles pour les mesures (évite la volumétrie d’un coup)
-    from utils.date_utils import generate_month_periods
-    from datetime import date as _date
-    min_date = _date(2020, 10, 1)
-    today = datetime.today().date()
-    periods = generate_month_periods(min_date, today)  # [('YYYY-MM-01','YYYY-MM-31'), ...] 
-    if periods:
-        print(f"[get_periods] nb={len(periods)} first={periods[0]} last={periods[-1]}")
-    else:
-        print("[get_periods] nb=0")
-    return periods
-
-
-@task
-def extract_measures_for_period(period: tuple):
-    """
-    Appel par période : append NDJSON sur /tmp/etl_iris/measures.jsonl
-    -> la version précédente mergait en RAM le JSON complet puis réécrivait:contentReference[oaicite:3]{index=3}.
-    """
-    start_date, end_date = period
-    extract_measure_batch_by_date(start_date=start_date, end_date=end_date)
 
 
 with DAG(
@@ -121,14 +90,10 @@ with DAG(
         execution_timeout=timedelta(hours=1),
     )
 
-    periods = get_periods()
-    extract_batches = extract_measures_for_period.expand(period=periods)
-
     load_task = PythonOperator(
         task_id='load_to_postgresql',
-        python_callable=load_to_postgresql,  # adapter pour lire .jsonl en flux (ligne par ligne) plutôt que json.load intégral:contentReference[oaicite:5]{index=5}.
-        
+        python_callable=load_to_postgresql,
     )
 
-    extract_task >> periods >> extract_batches >> load_task
+    extract_task >> load_task
 

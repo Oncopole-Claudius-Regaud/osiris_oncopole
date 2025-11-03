@@ -321,8 +321,8 @@ def load_to_postgresql(**kwargs):
                 return x.strftime("%H:%M:%S")
             except Exception:
                 pass
-        s = str(x).strip()
-        return s if s else None
+       # s = str(x).strip()
+        #return s if s else None
 
     # priorité au nouveau fichier; fallback sur l'ancien si besoin
     visits_iter = _stream_rows("visits")
@@ -354,8 +354,6 @@ def load_to_postgresql(**kwargs):
             _to_str_date(v.get("visit_estimated_end_date")),
             _to_str_time(v.get("visit_estimated_end_time")),
             none_if_empty(v.get("visit_functional_unit")),
-            none_if_empty(v.get("visit_code_unit")),
-            none_if_empty(v.get("visit_responsible_unit_desc")),
             none_if_empty(v.get("visit_type")),
             none_if_empty(v.get("visit_status")),
             none_if_empty(v.get("visit_reason")),
@@ -363,6 +361,8 @@ def load_to_postgresql(**kwargs):
             none_if_empty(v.get("visit_reason_deleted_flag")),
             is_pre_str,
             ep,  # visit_episode_id
+            none_if_empty(v.get("visit_code_unit")),
+            none_if_empty(v.get("visit_responsible_unit_desc")),
         ))
 
         if len(visit_buffer) >= BATCH_SIZE:
@@ -461,9 +461,6 @@ def load_to_postgresql(**kwargs):
                 d.get("condition_start_date"),
                 d.get("date_prelevement"),
                 d.get("date_diagnostic"),
-            ),
-            "diagnostic_end_date": coerce_date_or_none(
-                d.get("diagnostic_end_date"), d.get("condition_end_date"), d.get("date_diagnostic_end")
             ),
             "diagnostic_status": none_if_empty(
                 d.get("diagnostic_status") or d.get("condition_status")
@@ -771,20 +768,14 @@ def load_to_postgresql(**kwargs):
     
      # ---------------- RDV (stream + batch, upsert) ----------------
     rdv_buffer: List[Tuple] = []
-    seen_rdv = set()
+    pg_cur.execute("TRUNCATE TABLE osiris.rdv RESTART IDENTITY;")
+    pg_conn.commit()
 
     for t in _stream_rows("rdv"):
         ipp      = none_if_empty(t.get("ipp_ocr"))
         date_rdv = coerce_date_or_none(t.get("date_rdv"))
         libelle  = none_if_empty(t.get("libelle_examen"))
 
-        key = (ipp, date_rdv, libelle)
-
-        # Filtre: ignorer lignes incomplètes ou doublons d'entrée
-        if not ipp or not date_rdv or not libelle or key in seen_rdv:
-            continue
-
-        seen_rdv.add(key)
         rdv_buffer.append((ipp, date_rdv, libelle))
 
         if len(rdv_buffer) >= BATCH_SIZE:
@@ -794,8 +785,6 @@ def load_to_postgresql(**kwargs):
                 INSERT INTO osiris.rdv (
                     ipp_ocr, date_rdv, libelle_examen
                 ) VALUES %s
-                ON CONFLICT (ipp_ocr, date_rdv, libelle_examen) DO UPDATE SET
-                    libelle_examen = COALESCE(NULLIF(EXCLUDED.libelle_examen,''), osiris.rdv.libelle_examen)
                 """,
                 rdv_buffer,
                 label="rdv (batch)",
@@ -809,8 +798,6 @@ def load_to_postgresql(**kwargs):
         INSERT INTO osiris.rdv (
             ipp_ocr, date_rdv, libelle_examen
         ) VALUES %s
-        ON CONFLICT (ipp_ocr, date_rdv, libelle_examen) DO UPDATE SET
-            libelle_examen = COALESCE(NULLIF(EXCLUDED.libelle_examen,''), osiris.rdv.libelle_examen)
         """,
         rdv_buffer,
         label="rdv (final)",

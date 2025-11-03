@@ -1,3 +1,4 @@
+
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 import logging
 from utils.transform_chimio import clean_int
@@ -33,10 +34,17 @@ def _to_none_if_nat(value):
 
 
 def load_treatment_lines(df):
+    """
+    Charge les lignes de traitement dans osiris.treatment_line,
+    en incluant les nouvelles colonnes (doseadm, etat_code, numetape, etat_label).
+    """
     conn_id = Variable.get("target_pg_conn_id", default_var="postgres_test")
     postgres = PostgresHook(postgres_conn_id=conn_id)
 
     inserted = 0
+    postgres.run("TRUNCATE TABLE osiris.treatment_line RESTART IDENTITY CASCADE;")
+    logging.info("Table vidée avec succès ")
+
     for _, row in df.iterrows():
         ipp_value = row.get("noobspat") or row.get("ipp_ocr")
 
@@ -55,9 +63,10 @@ def load_treatment_lines(df):
                 treatment_comment, protocol_name, protocol_detail,
                 protocol_category, protocol_type, local_code,
                 valid_protocol, start_date, end_date, nb_cycles,
-                radiation, record_hash
+                radiation, record_hash,
+                doseadm, etat_code, etat_label, code_cim
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (record_hash) DO NOTHING
             """,
             parameters=(
@@ -76,11 +85,16 @@ def load_treatment_lines(df):
                 row.get("nb_cycles"),
                 row.get("radiation"),
                 row.get("record_hash"),
+                # nouvelles colonnes 👇
+                clean_int(row.get("doseadm")),
+                clean_int(row.get("etat_code")),
+                row.get("etat_label"),
+                row.get("code_cim"),
             ),
         )
         inserted += 1
 
-    logging.info(f"{inserted} lignes de traitement insérées.")
+    logging.info(f"{inserted} lignes de traitement insérées (avec colonnes étendues).")
 
 
 def load_drug_administrations(df):
