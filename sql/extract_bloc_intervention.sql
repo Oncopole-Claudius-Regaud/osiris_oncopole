@@ -1,0 +1,8 @@
+SELECT DISTINCT
+    BI.NUM_DOSS       AS "ipp_ocr",
+    BI.DAT_DEB_REEL   AS "dat_deb_reel",
+    BI.DAT_FIN_REEL   AS "dat_fin_reel",
+    BI.NOM_INTERV     AS "nom_interv"
+FROM DWH.BLOC_INTERVENTION BI
+WHERE BI.DAT_DEB_REEL IS NOT NULL
+  AND BI.NOM_INTERV IS NOT NULL

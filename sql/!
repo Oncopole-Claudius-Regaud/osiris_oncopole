@@ -1,0 +1,30 @@
+WITH prep AS (
+  SELECT
+    TRIM(REFP_IPP)            AS ipp_ocr,
+    TRIM(REFP_IPP_CHU)        AS ipp_chu,          -- ajuste si le nom diffère dans ta table
+    REFP_SEX                  AS gender,
+    REFP_DATE_DECES           AS date_of_death,
+    TRIM(REFP_NOM)            AS nom,
+    TRIM(REFP_PRENOM)         AS prenom,
+    REFP_DATE_NAISS           AS date_of_birth,
+    TRIM(REFP_VILLE_NAISS)    AS birth_city,
+    REFP_DATE_CREATION        AS date_record_create,
+    ROW_NUMBER() OVER (
+      PARTITION BY REFP_IPP
+      ORDER BY REFP_DATE_CREATION
+    ) AS rn
+  FROM EAIDATA.REF_PATIENT
+  WHERE REFP_IPP IS NOT NULL
+)
+SELECT
+  ipp_ocr,
+  ipp_chu,
+  gender,
+  date_of_death,
+  nom,
+  prenom,
+  date_of_birth,
+  birth_city,
+  date_record_create
+FROM prep
+WHERE rn = 1

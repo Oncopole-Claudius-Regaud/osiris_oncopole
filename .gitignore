@@ -24,7 +24,7 @@ Thumbs.db
 
 #fichier sensible
 utils/patients.py
-sql/
+docs/mesh_fre_20250101.xml
 osiris/
 oeci/
 omop/
