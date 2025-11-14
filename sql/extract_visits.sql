@@ -22,7 +22,6 @@ SELECT DISTINCT
     END AS visit_status_label,
     motif.REAENC_Comment            AS visit_reason,
     motif.REAENC_CreateDate         AS visit_reason_create_date,
-    motif.REAENC_Deleted            AS visit_reason_deleted_flag,
     adm.PAADM_PreAdmitted           AS is_preadmission
 FROM SQLUser.PA_ADM AS adm
 LEFT JOIN SQLUser.PA_PATMAS AS pat

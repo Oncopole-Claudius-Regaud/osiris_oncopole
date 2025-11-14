@@ -58,9 +58,9 @@ def extract_chimio_data():
     expected_cols_treatment = [
         "noobspat", "treatment_label", "treatment_comment",
         "protocol_name", "protocol_detail", "protocol_category",
-        "protocol_type", "local_code", "valid_protocol",
+        "protocol_type", "valid_protocol",
         "start_date", "end_date", "radiation",
-        "doseadm", "etat_code", "etat_label","code_cim"
+        "doseadm", "etat_code", "code_cim"
     ]
     missing_treat = set(expected_cols_treatment) - set(df_treatment.columns)
     if missing_treat:
@@ -72,9 +72,9 @@ def extract_chimio_data():
         [
             "noobspat", "treatment_label", "treatment_comment",
             "protocol_name", "protocol_detail", "protocol_category",
-            "protocol_type", "local_code", "valid_protocol",
+            "protocol_type", "valid_protocol",
             "start_date", "end_date", "radiation",
-            "doseadm", "etat_code", "etat_label", "code_cim"
+            "doseadm", "etat_code", "code_cim"
         ]
     )
 

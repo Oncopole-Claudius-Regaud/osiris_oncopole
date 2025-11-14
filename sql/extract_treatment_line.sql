@@ -1,6 +1,5 @@
 WITH lignes_raw AS (
           SELECT
-            inc.I0CLEUNIK AS treatment_line_id,
 	    inc.codelocal as code_cim,
             pa.NOOBSPAT,
             inc.COMINCLUS AS treatment_comment,

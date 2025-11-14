@@ -25,6 +25,7 @@ def extract_and_load_chirurgie():
 
     # --- Extraction Oracle → DataFrame
     df_chirurgie = pd.read_sql(sql_chirurgie, ora_conn)
+    df_chirurgie.to_json("/tmp/etl_iris/chirurgie.jsonl", orient="records", lines=True, force_ascii=False)
     logging.info(f"✅ {len(df_chirurgie)} lignes extraites avant nettoyage.")
     logging.info(f"📊 Colonnes Oracle détectées : {list(df_chirurgie.columns)}")
 
@@ -38,7 +39,7 @@ def extract_and_load_chirurgie():
         logging.info("🩺 Colonne 'IN_CODE' détectée (code CCAM).")
 
     # --- Suppression des doublons
-    df_chirurgie = df_chirurgie.drop_duplicates(subset=["p_code", "i_label", "i_planned_start"])
+    df_chirurgie = df_chirurgie.drop_duplicates(subset=["p_code", "i_label", "i_planned_start", "in_code"])
     logging.info(f"🧹 {len(df_chirurgie)} lignes après suppression des doublons.")
 
     # --- Conversion des types

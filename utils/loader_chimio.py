@@ -59,26 +59,23 @@ def load_treatment_lines(df):
         postgres.run(
             """
             INSERT INTO osiris.treatment_line (
-                ipp_ocr, treatment_line_number, treatment_label,
+                ipp_ocr, treatment_label,
                 treatment_comment, protocol_name, protocol_detail,
-                protocol_category, protocol_type, local_code,
-                valid_protocol, start_date, end_date, nb_cycles,
+                protocol_category, protocol_type, valid_protocol, start_date, end_date, nb_cycles,
                 radiation, record_hash,
-                doseadm, etat_code, etat_label, code_cim
+                doseadm, etat_code, code_cim
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (record_hash) DO NOTHING
             """,
             parameters=(
                 ipp_value,
-                row.get("treatment_line_number"),
                 row.get("treatment_label"),
                 row.get("treatment_comment"),
                 row.get("protocol_name"),
                 row.get("protocol_detail"),
                 row.get("protocol_category"),
                 row.get("protocol_type"),
-                clean_int(row.get("local_code")),
                 clean_int(row.get("valid_protocol")),
                 start_date,
                 end_date,
@@ -88,7 +85,6 @@ def load_treatment_lines(df):
                 # nouvelles colonnes 👇
                 clean_int(row.get("doseadm")),
                 clean_int(row.get("etat_code")),
-                row.get("etat_label"),
                 row.get("code_cim"),
             ),
         )

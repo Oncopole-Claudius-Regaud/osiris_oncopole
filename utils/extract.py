@@ -152,7 +152,6 @@ def extract_admission_data_to_file(cursor):
                     "visit_status": row.visit_status or "",
                     "visit_reason": row.visit_reason or "",
                     "visit_reason_create_date": row.visit_reason_create_date if _is_date_like(row.visit_reason_create_date) else None,
-                    "visit_reason_deleted_flag": row.visit_reason_deleted_flag or "",
                     "is_preadmission": ((row.visit_status or "").strip().upper() == "P"),
                 }
                 _dump(rec, f); wrote += 1
@@ -377,6 +376,7 @@ def extract_rdv_data_to_file(cursor):
                     "ipp_ocr": (row.ipp_ocr or "").strip(),
                     "date_rdv": row.date_rdv if _is_date_like(row.date_rdv) else None,
                     "libelle_examen": (row.libelle_examen or "").strip(),
+                    "date_booked":row.date_booked if _is_date_like(row.date_rdv) else None,
                 }
                 _dump(rec, f)
                 wrote += 1

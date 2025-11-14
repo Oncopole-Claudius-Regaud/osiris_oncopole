@@ -2,6 +2,7 @@ import logging
 import json
 import os
 import re
+import gc
 from datetime import datetime, date
 from typing import Iterable, Dict, Any, List, Tuple
 
@@ -358,7 +359,6 @@ def load_to_postgresql(**kwargs):
             none_if_empty(v.get("visit_status")),
             none_if_empty(v.get("visit_reason")),
             _to_str_date(v.get("visit_reason_create_date")),
-            none_if_empty(v.get("visit_reason_deleted_flag")),
             is_pre_str,
             ep,  # visit_episode_id
             none_if_empty(v.get("visit_code_unit")),
@@ -375,8 +375,7 @@ def load_to_postgresql(**kwargs):
                     visit_end_date, visit_end_time,
                     visit_estimated_end_date, visit_estimated_end_time,
                     visit_functional_unit, visit_type, visit_status,
-                    visit_reason, visit_reason_create_date, visit_reason_deleted_flag,
-                    is_preadmission,
+                    visit_reason, visit_reason_create_date, is_preadmission,
                     visit_episode_id, visit_code_unit, visit_responsible_unit_desc
                 ) VALUES %s
                 ON CONFLICT (ipp_ocr, visit_episode_id) DO UPDATE SET
@@ -393,7 +392,6 @@ def load_to_postgresql(**kwargs):
                     visit_status              = COALESCE(NULLIF(EXCLUDED.visit_status,''),   osiris.visit.visit_status),
                     visit_reason              = COALESCE(NULLIF(EXCLUDED.visit_reason,''),   osiris.visit.visit_reason),
                     visit_reason_create_date  = COALESCE(EXCLUDED.visit_reason_create_date,  osiris.visit.visit_reason_create_date),
-                    visit_reason_deleted_flag = COALESCE(NULLIF(EXCLUDED.visit_reason_deleted_flag,''), osiris.visit.visit_reason_deleted_flag),
                     is_preadmission           = COALESCE(NULLIF(EXCLUDED.is_preadmission,''), osiris.visit.is_preadmission)
                 """,
                 visit_buffer,
@@ -411,8 +409,7 @@ def load_to_postgresql(**kwargs):
             visit_end_date, visit_end_time,
             visit_estimated_end_date, visit_estimated_end_time,
             visit_functional_unit, visit_type, visit_status,
-            visit_reason, visit_reason_create_date, visit_reason_deleted_flag,
-            is_preadmission,
+            visit_reason, visit_reason_create_date,is_preadmission,
             visit_episode_id, visit_code_unit, visit_responsible_unit_desc
         ) VALUES %s
         ON CONFLICT (ipp_ocr, visit_episode_id) DO UPDATE SET
@@ -429,7 +426,6 @@ def load_to_postgresql(**kwargs):
             visit_status              = COALESCE(NULLIF(EXCLUDED.visit_status,''),   osiris.visit.visit_status),
             visit_reason              = COALESCE(NULLIF(EXCLUDED.visit_reason,''),   osiris.visit.visit_reason),
             visit_reason_create_date  = COALESCE(EXCLUDED.visit_reason_create_date,  osiris.visit.visit_reason_create_date),
-            visit_reason_deleted_flag = COALESCE(NULLIF(EXCLUDED.visit_reason_deleted_flag,''), osiris.visit.visit_reason_deleted_flag),
             is_preadmission           = COALESCE(NULLIF(EXCLUDED.is_preadmission,''), osiris.visit.is_preadmission)
         """,
         visit_buffer,
@@ -464,9 +460,6 @@ def load_to_postgresql(**kwargs):
             ),
             "diagnostic_status": none_if_empty(
                 d.get("diagnostic_status") or d.get("condition_status")
-            ),
-            "diagnostic_deleted_flag": none_if_empty(
-                d.get("diagnostic_deleted_flag") or d.get("condition_deleted_flag")
             ),
             "diagnostic_create_date": coerce_date_or_none(
                 d.get("diagnostic_create_date") or d.get("condition_create_date") or d.get("date_diagnostic_created_at")
@@ -514,8 +507,7 @@ def load_to_postgresql(**kwargs):
 
         stage_date            = coerce_date_or_none(d.get("stage_date"))
 
-        # Respecter l'ordre des colonnes → on GARDE le même ordre de tête
-        # pour ne pas casser la sanitation dans _flush_values (indices 1/2/6/7/8)
+        
         diag_buffer.append(
             (
                 row_dict["ipp_ocr"],                 # 0
@@ -523,11 +515,9 @@ def load_to_postgresql(**kwargs):
                 row_dict["diagnostic_source_value"], # 2
                 row_dict["diagnostic_concept_label"],# 3
                 row_dict["diagnostic_status"],       # 4
-                to_bool_or_none(row_dict["diagnostic_deleted_flag"]),  # 5
                 row_dict["diagnostic_create_date"],  # 6
-                row_dict["cim_updated_at"],          # 7  (on conserve ta logique existante)
-                row_dict["diagnostic_end_date"],     # 8
-                diag_hash,                            # 9  <-- clé de conflit
+                row_dict["cim_updated_at"],          # 7  
+                diag_hash,                            # 9
                 row_dict["code_morphologique"],      # 10
 
                 # ---- Nouvelles colonnes (à partir de l'index 11) ----
@@ -559,8 +549,8 @@ def load_to_postgresql(**kwargs):
                 """
                 INSERT INTO osiris.diagnostic (
                     ipp_ocr, date_prelevement, code_cim, libelle_cim,
-                    diagnostic_status, diagnostic_deleted_flag,
-                    date_diagnostic_created_at, date_diagnostic_updated_at, date_diagnostic_end,
+                    diagnostic_status,
+                    date_diagnostic_created_at, date_diagnostic_updated_at,
                     diagnostic_hash, code_morphologique,
                     tnm_code, cancer_type, cancer_site,
                     t_stage_code, t_stage_desc, stage_t_after_path, stage_t_after_adjuv, stage_t_recurrent,
@@ -574,10 +564,8 @@ def load_to_postgresql(**kwargs):
                     code_cim                    = COALESCE(NULLIF(EXCLUDED.code_cim,''), osiris.diagnostic.code_cim),
                     libelle_cim                 = COALESCE(NULLIF(EXCLUDED.libelle_cim,''), osiris.diagnostic.libelle_cim),
                     diagnostic_status           = COALESCE(NULLIF(EXCLUDED.diagnostic_status,''), osiris.diagnostic.diagnostic_status),
-                    diagnostic_deleted_flag     = COALESCE(EXCLUDED.diagnostic_deleted_flag, osiris.diagnostic.diagnostic_deleted_flag),
                     date_diagnostic_created_at  = COALESCE(EXCLUDED.date_diagnostic_created_at, osiris.diagnostic.date_diagnostic_created_at),
                     date_diagnostic_updated_at  = COALESCE(EXCLUDED.date_diagnostic_updated_at, osiris.diagnostic.date_diagnostic_updated_at),
-                    date_diagnostic_end         = COALESCE(EXCLUDED.date_diagnostic_end, osiris.diagnostic.date_diagnostic_end),
                     code_morphologique          = COALESCE(NULLIF(EXCLUDED.code_morphologique,''), osiris.diagnostic.code_morphologique),
                     tnm_code                    = COALESCE(NULLIF(EXCLUDED.tnm_code,''), osiris.diagnostic.tnm_code),
                     cancer_type                 = COALESCE(NULLIF(EXCLUDED.cancer_type,''), osiris.diagnostic.cancer_type),
@@ -611,8 +599,8 @@ def load_to_postgresql(**kwargs):
         """
         INSERT INTO osiris.diagnostic (
             ipp_ocr, date_prelevement, code_cim, libelle_cim,
-            diagnostic_status, diagnostic_deleted_flag,
-            date_diagnostic_created_at, date_diagnostic_updated_at, date_diagnostic_end,
+            diagnostic_status,
+            date_diagnostic_created_at, date_diagnostic_updated_at,
             diagnostic_hash, code_morphologique,
             tnm_code, cancer_type, cancer_site,
             t_stage_code, t_stage_desc, stage_t_after_path, stage_t_after_adjuv, stage_t_recurrent,
@@ -626,10 +614,8 @@ def load_to_postgresql(**kwargs):
             code_cim                    = COALESCE(NULLIF(EXCLUDED.code_cim,''), osiris.diagnostic.code_cim),
             libelle_cim                 = COALESCE(NULLIF(EXCLUDED.libelle_cim,''), osiris.diagnostic.libelle_cim),
             diagnostic_status           = COALESCE(NULLIF(EXCLUDED.diagnostic_status,''), osiris.diagnostic.diagnostic_status),
-            diagnostic_deleted_flag     = COALESCE(EXCLUDED.diagnostic_deleted_flag, osiris.diagnostic.diagnostic_deleted_flag),
             date_diagnostic_created_at  = COALESCE(EXCLUDED.date_diagnostic_created_at, osiris.diagnostic.date_diagnostic_created_at),
             date_diagnostic_updated_at  = COALESCE(EXCLUDED.date_diagnostic_updated_at, osiris.diagnostic.date_diagnostic_updated_at),
-            date_diagnostic_end         = COALESCE(EXCLUDED.date_diagnostic_end, osiris.diagnostic.date_diagnostic_end),
             code_morphologique          = COALESCE(NULLIF(EXCLUDED.code_morphologique,''), osiris.diagnostic.code_morphologique),
             tnm_code                    = COALESCE(NULLIF(EXCLUDED.tnm_code,''), osiris.diagnostic.tnm_code),
             cancer_type                 = COALESCE(NULLIF(EXCLUDED.cancer_type,''), osiris.diagnostic.cancer_type),
@@ -765,47 +751,79 @@ def load_to_postgresql(**kwargs):
     )
     seen_trt_hashes_batch.clear()
 
-    
-     # ---------------- RDV (stream + batch, upsert) ----------------
+# ---------------- RDV ----------------
+
     rdv_buffer: List[Tuple] = []
-    pg_cur.execute("TRUNCATE TABLE osiris.rdv RESTART IDENTITY;")
-    pg_conn.commit()
+    seen_rdv = set()
 
-    for t in _stream_rows("rdv"):
-        ipp      = none_if_empty(t.get("ipp_ocr"))
-        date_rdv = coerce_date_or_none(t.get("date_rdv"))
-        libelle  = none_if_empty(t.get("libelle_examen"))
+    logging.info("Début du chargement des rendez-vous (stream + batch)")
 
-        rdv_buffer.append((ipp, date_rdv, libelle))
+    # même ordre que la table cible :
+    # (ipp_ocr, date_rdv, libelle_examen, date_booked)
+    for r in _stream_rows("rdv"):
+        ipp = none_if_empty(r.get("ipp_ocr"))
+        date_rdv = coerce_date_or_none(r.get("date_rdv"))
+        libelle_examen = none_if_empty(r.get("libelle_examen"))
+        date_booked = coerce_date_or_none(r.get("date_booked"))
 
+        # clé unique possible : (ipp_ocr, date_rdv, libelle_examen)
+        rdv_key = (ipp, date_rdv, libelle_examen)
+
+        # skip invalid or duplicate records
+        if not ipp or not date_rdv or rdv_key in seen_rdv:
+            continue
+        seen_rdv.add(rdv_key)
+
+        rdv_buffer.append((
+            ipp,             # ipp_ocr
+            date_rdv,        # date_rdv
+            libelle_examen,  # libelle_examen
+            date_booked,     # date_booked
+        ))
+
+        # flush intermédiaire
         if len(rdv_buffer) >= BATCH_SIZE:
             _flush_values(
                 pg_cur,
                 """
                 INSERT INTO osiris.rdv (
-                    ipp_ocr, date_rdv, libelle_examen
+                    ipp_ocr, date_rdv, libelle_examen, date_booked
                 ) VALUES %s
+                ON CONFLICT (ipp_ocr, date_rdv, libelle_examen) DO UPDATE
+                SET
+                  date_rdv       = COALESCE(EXCLUDED.date_rdv,       osiris.rdv.date_rdv),
+                  libelle_examen = COALESCE(EXCLUDED.libelle_examen, osiris.rdv.libelle_examen),
+                  date_booked    = COALESCE(EXCLUDED.date_booked,    osiris.rdv.date_booked)
                 """,
                 rdv_buffer,
                 label="rdv (batch)",
                 commit_conn=pg_conn,
             )
+            rdv_buffer.clear()
+            gc.collect()
 
-    # Flush final
-    _flush_values(
-        pg_cur,
-        """
-        INSERT INTO osiris.rdv (
-            ipp_ocr, date_rdv, libelle_examen
-        ) VALUES %s
-        """,
-        rdv_buffer,
-        label="rdv (final)",
-        commit_conn=pg_conn,
-    )
-        
-    
-    
+    # flush final
+    if rdv_buffer:
+        _flush_values(
+            pg_cur,
+            """
+            INSERT INTO osiris.rdv (
+                ipp_ocr, date_rdv, libelle_examen, date_booked
+            ) VALUES %s
+            ON CONFLICT (ipp_ocr, date_rdv, libelle_examen) DO UPDATE
+            SET
+              date_rdv       = COALESCE(EXCLUDED.date_rdv,       osiris.rdv.date_rdv),
+              libelle_examen = COALESCE(EXCLUDED.libelle_examen, osiris.rdv.libelle_examen),
+              date_booked    = COALESCE(EXCLUDED.date_booked,    osiris.rdv.date_booked)
+            """,
+            rdv_buffer,
+            label="rdv (final)",
+            commit_conn=pg_conn,
+        )
+
+    logging.info("Fin du chargement des rendez-vous – %d lignes traitées", len(seen_rdv))
+
+
     
 
     # ---------------- CLEANUP ----------------
