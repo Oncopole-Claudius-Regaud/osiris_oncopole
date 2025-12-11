@@ -2,7 +2,8 @@ SELECT
     pat.PAPMI_No AS ipp_ocr,
     rdv.APPT_DateComp AS date_rdv,
     rdv.APPT_BookedDate AS date_booked,
-    rdv.APPT_RBCServ_DR->SER_ARCIM_DR->ARCIM_Desc AS libelle_examen
+    rdv.APPT_RBCServ_DR->SER_ARCIM_DR->ARCIM_Desc AS libelle_examen,
+    rdv.APPT_Status AS rdv_status
 FROM
     SQLUser.PA_PatMas AS pat
 JOIN

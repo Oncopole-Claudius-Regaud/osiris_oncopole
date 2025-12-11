@@ -1,141 +1,129 @@
 
-from airflow.providers.postgres.hooks.postgres import PostgresHook
+from psycopg2.extras import execute_values
 import logging
-from utils.transform_chimio import clean_int
-import pandas as pd
 from airflow.models import Variable
+from airflow.providers.postgres.hooks.postgres import PostgresHook
+import pandas as pd
 
+BATCH_SIZE = 5000
 
-def _is_valid_ipp(val):
+def _is_valid_num_doss(val):
     """
-    Vérifie si un ipp_ocr est valide :
-    - non nul
-    - non vide
-    - différent de -1
+    Vérifie si le NUM_DOSS est valide : non nul, non vide, et différent de -1.
     """
-    if val is None:
+    if val is None or pd.isna(val):
         return False
+
     s = str(val).strip()
+
     if s == "" or s == "-1" or s.lower() in ("nan", "none", "null"):
         return False
+
     return True
 
 
-def _to_none_if_nat(value):
-    """Convertit NaT/NaN en None pour insertion SQL."""
-    if value is None:
-        return None
-    try:
-        if pd.isna(value):
-            return None
-    except Exception:
-        pass
-    return value
-
-
-def load_treatment_lines(df):
+def load_chimio_plan_data(df_plan):
     """
-    Charge les lignes de traitement dans osiris.treatment_line,
-    en incluant les nouvelles colonnes (doseadm, etat_code, numetape, etat_label).
+    Charge les données de planification dans la table cible osiris.chimio_plan.
     """
     conn_id = Variable.get("target_pg_conn_id", default_var="postgres_test")
-    postgres = PostgresHook(postgres_conn_id=conn_id)
+    pg_hook = PostgresHook(postgres_conn_id=conn_id)
+    pg_conn = pg_hook.get_conn()
+    pg_cur = pg_conn.cursor()
 
-    inserted = 0
-    postgres.run("TRUNCATE TABLE osiris.treatment_line RESTART IDENTITY CASCADE;")
-    logging.info("Table vidée avec succès ")
-
-    for _, row in df.iterrows():
-        ipp_value = row.get("noobspat") or row.get("ipp_ocr")
-
-        # skip si l'IPP est invalide
-        if not _is_valid_ipp(ipp_value):
-            logging.warning("Ligne ignorée (IPP invalide) : %s", ipp_value)
-            continue
-
-        start_date = _to_none_if_nat(row.get("start_date"))
-        end_date = _to_none_if_nat(row.get("end_date"))
-
-        postgres.run(
-            """
-            INSERT INTO osiris.treatment_line (
-                ipp_ocr, treatment_label,
-                treatment_comment, protocol_name, protocol_detail,
-                protocol_category, protocol_type, valid_protocol, start_date, end_date, nb_cycles,
-                radiation, record_hash,
-                doseadm, etat_code, code_cim
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (record_hash) DO NOTHING
-            """,
-            parameters=(
-                ipp_value,
-                row.get("treatment_label"),
-                row.get("treatment_comment"),
-                row.get("protocol_name"),
-                row.get("protocol_detail"),
-                row.get("protocol_category"),
-                row.get("protocol_type"),
-                clean_int(row.get("valid_protocol")),
-                start_date,
-                end_date,
-                row.get("nb_cycles"),
-                row.get("radiation"),
-                row.get("record_hash"),
-                # nouvelles colonnes 👇
-                clean_int(row.get("doseadm")),
-                clean_int(row.get("etat_code")),
-                row.get("code_cim"),
-            ),
-        )
-        inserted += 1
-
-    logging.info(f"{inserted} lignes de traitement insérées (avec colonnes étendues).")
-
-
-def load_drug_administrations(df):
-    conn_id = Variable.get("target_pg_conn_id", default_var="postgres_test")
-    postgres = PostgresHook(postgres_conn_id=conn_id)
+    df = df_plan
+    df.columns = [c.upper() for c in df.columns]
     df = df.where(pd.notnull(df), None)
 
-    inserted = 0
-    for _, row in df.iterrows():
-        ipp_value = row.get("noobspat") or row.get("ipp_ocr")
+    df = df[df["NUM_DOSS"].apply(_is_valid_num_doss)]
+    if df.empty:
+        logging.info("Aucune donnée valide pour osiris.chimio_plan.")
+        return
 
-        if not _is_valid_ipp(ipp_value):
-            logging.warning("Ligne ignorée (IPP invalide) : %s", ipp_value)
-            continue
+    logging.info("Vidage de la table osiris.chimio_plan")
+    pg_cur.execute("TRUNCATE TABLE osiris.chimio_plan;")
+    pg_conn.commit()
 
-        start_date = _to_none_if_nat(row.get("start_date"))
-        end_date = _to_none_if_nat(row.get("end_date"))
+    target_cols = ["NUM_DOSS", "DAT_OUV", "CODE_LOC_CALC"]
+    df_insert = df[target_cols] 
 
-        postgres.run(
-            """
-            INSERT INTO osiris.drug_administration (
-                ipp_ocr, cycle_number, start_date, end_date,
-                protocol_name, protocol_type, codepdt, drug_name, code_voie,
-                unite, dose_adm, is_real_drug, record_hash
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (record_hash) DO NOTHING
-            """,
-            parameters=(
-                ipp_value,
-                row.get("cycle_number"),
-                start_date,
-                end_date,
-                row.get("protocol_name"),
-                row.get("protocol_type"),
-                clean_int(row.get("codepdt")),
-                row.get("drug_name"),
-                row.get("code_voie"),
-                clean_int(row.get("unite")),
-                clean_int(row.get("dose_adm")),
-                bool(row.get("is_real_drug")),
-                row.get("record_hash"),
-            ),
+    buffer = []
+
+    def flush():
+        if not buffer: return
+        logging.info(f"Insert batch de {len(buffer)} lignes en chimio_plan…")
+        execute_values(
+            pg_cur,
+            f"""INSERT INTO osiris.chimio_plan ({", ".join(target_cols)}) VALUES %s""",
+            buffer,
+            page_size=1000
         )
-        inserted += 1
+        pg_conn.commit()
+        buffer.clear()
 
-    logging.info(f"{inserted} médicaments insérés.")
+    for _, row in df_insert.iterrows():
+        tup = tuple(row)
+        buffer.append(tup)
+        if len(buffer) >= BATCH_SIZE:
+            flush()
 
+    flush()
+    pg_cur.close()
+    pg_conn.close()
+    logging.info("Chargement chimio_plan terminé ✔️")
+
+
+def load_chimio_data(df_chimio):
+    """
+    Charge les données de chimiothérapie dans la table cible osiris.chimiotherapie.
+    """
+    conn_id = Variable.get("target_pg_conn_id", default_var="postgres_test")
+    pg_hook = PostgresHook(postgres_conn_id=conn_id)
+    pg_conn = pg_hook.get_conn()
+    pg_cur = pg_conn.cursor()
+
+    df = df_chimio
+    df.columns = [c.upper() for c in df.columns]
+    df = df.where(pd.notnull(df), None)
+
+    df = df[df["NUM_DOSS"].apply(_is_valid_num_doss)]
+    if df.empty:
+        logging.info("Aucune donnée valide pour chimiothérapie.")
+        return
+
+    logging.info("Vidage de la table osiris.chimiotherapie")
+    pg_cur.execute("TRUNCATE TABLE osiris.chimiotherapie;")
+    pg_conn.commit()
+
+    target_cols = [
+        "NUM_DOSS", "JOUR", "DAT_ADMINI", "COD_CATEG_PROTO", "COD_TYP_PROTO",
+        "NUM_PDT", "NOM_PDT", "COD_VOIE", "UF_REAL", "LIB_UF_REAL",
+        "DOSE_TOT", "NOM_PROTO", "NOM_MODA", "CE_ETAT_CHIMIO"
+    ]
+
+    df_insert = df[target_cols] 
+
+    buffer = []
+
+    def flush():
+        if not buffer: return
+        logging.info(f"Insert batch de {len(buffer)} lignes en chimiothérapie…")
+        execute_values(
+            pg_cur,
+            f"""INSERT INTO osiris.chimiotherapie ({", ".join(target_cols)}) VALUES %s""",
+            buffer,
+            page_size=1000
+        )
+        pg_conn.commit()
+        buffer.clear()
+
+    for _, row in df_insert.iterrows():
+        tup = tuple(row)
+        buffer.append(tup)
+        if len(buffer) >= BATCH_SIZE:
+            flush()
+
+    flush()
+    pg_cur.close()
+    pg_conn.close()
+    logging.info("Chargement chimiothérapie terminé ✔️")

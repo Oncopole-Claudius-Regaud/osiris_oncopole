@@ -72,17 +72,13 @@ def filter_existing_records(
     return df[~df[hash_column].isin(existing_hashes)]
 
 
-def transform_all(treatment_df, drugs_df):
+def transform_all(treatment_df):
     """
     Applique les transformations de base : nettoyage (dates, NaN) sur les 3 DataFrames.
     """
     treatment_clean = clean_dataframe(
         treatment_df, date_columns=[
-            "start_date", "end_date"]
+            "dat_admini"]
     )
 
-    drugs_clean = clean_dataframe(
-        drugs_df, date_columns=[
-            "start_date", "end_date"]
-    )
-    return treatment_clean, drugs_clean
+    return treatment_clean

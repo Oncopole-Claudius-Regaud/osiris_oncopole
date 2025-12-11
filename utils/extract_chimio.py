@@ -1,20 +1,19 @@
 import pandas as pd
-
 import logging
-from utils.db import get_postgres_hook, connect_to_oracle
+# Les imports suivants sont supposés exister dans votre environnement
+from utils.db import get_postgres_hook, oracle_radio
 from utils.sql_loader import load_sql
-from utils.transform_chimio import (
-    clean_dataframe,
-    remove_duplicates_and_hash,
-    filter_existing_records
-)
+from utils.transform_chimio import clean_dataframe 
 
+# ----------------------------------------------------------------------
+# FONCTIONS D'EXTRACTION ORACLE (mêmes que précédemment)
+# ----------------------------------------------------------------------
 
 def extract_data_from_oracle(query_input):
     """
-    Exécute une requête SQL (fichier ou chaîne) sur Oracle et retourne un DataFrame.
+    Exécute une requête SQL sur Oracle et retourne un DataFrame.
     """
-    conn = connect_to_oracle()
+    conn = oracle_radio()
     cursor = conn.cursor()
 
     if query_input.strip().lower().endswith(".sql"):
@@ -30,88 +29,51 @@ def extract_data_from_oracle(query_input):
     cursor.close()
     conn.close()
     return df
-	
-	
+
+
+def extract_chimio_plan_data():
+    """
+    Extrait et nettoie toutes les données de planification (CHIMIO_PLAN) tel quel.
+    """
+    logging.info("    [1.1] Extraction et nettoyage complètes des données de planification (CHIMIO_PLAN)")
+    
+    df_plan_raw = extract_data_from_oracle("extract_chimio_plan.sql")
+    df_plan_raw.columns = df_plan_raw.columns.map(lambda x: x.lower())
+
+    df_plan = clean_dataframe(df_plan_raw, date_columns=["dat_ouv"])
+    
+    if 'num_doss' in df_plan.columns:
+         df_plan['num_doss'] = df_plan['num_doss'].astype(str)
+         
+    return df_plan[['num_doss', 'dat_ouv', 'code_loc_calc']]
+
+
 def extract_chimio_data():
     """
-    Étape d'extraction + nettoyage des données depuis Oracle.
-    Renvoie 2 DataFrames : lignes de traitement, médicaments.
+    Étape d'extraction des deux DataFrames : df_chimio et df_plan.
     """
-    logging.info("[1] Extraction & préparation des données chimiothérapie (NOOBSPAT comme identifiant patient)")
+    logging.info("[1] Extraction & préparation des données chimiothérapie (Deux tables séparées)")
 
-    postgres = get_postgres_hook()
+    # 1. Extraction des données de planification
+    df_plan = extract_chimio_plan_data()
+    
+    # 2. Extraction des données d'administration
+    logging.info("    [1.2] Extraction et nettoyage des données d'administration (CHIMIOTHERAPIE)")
+    df_chimio_raw = extract_data_from_oracle("extract_chimio.sql")
+    df_chimio_raw.columns = df_chimio_raw.columns.map(lambda x: x.lower())
 
-    # --- Lignes de traitement ---
-    df_treatment = extract_data_from_oracle("extract_treatment_line.sql")
-
-    # nettoyage des colonnes de date
-    df_treatment = clean_dataframe(df_treatment, date_columns=["start_date", "end_date"])
-    df_treatment.rename(
-        columns={
-            "start_date": "start_date",
-            "end_date": "end_date"
-        },
-        inplace=True
-    )
-
-    # Colonnes attendues mises à jour sans nb_cycles ni treatment_line_number
-    expected_cols_treatment = [
-        "noobspat", "treatment_label", "treatment_comment",
-        "protocol_name", "protocol_detail", "protocol_category",
-        "protocol_type", "valid_protocol",
-        "start_date", "end_date", "radiation",
-        "doseadm", "etat_code", "code_cim"
-    ]
-    missing_treat = set(expected_cols_treatment) - set(df_treatment.columns)
-    if missing_treat:
-        logging.warning("Colonnes manquantes dans df_treatment : %s", sorted(missing_treat))
-
-    # dédoublonnage et hash
-    df_treatment, hash_col_treatment = remove_duplicates_and_hash(
-        df_treatment,
-        [
-            "noobspat", "treatment_label", "treatment_comment",
-            "protocol_name", "protocol_detail", "protocol_category",
-            "protocol_type", "valid_protocol",
-            "start_date", "end_date", "radiation",
-            "doseadm", "etat_code", "code_cim"
-        ]
-    )
-
-    # filtrage des lignes déjà présentes
-    df_treatment = filter_existing_records(
-        df_treatment, postgres, "osiris.treatment_line", hash_col_treatment
-    )
-
-    # --- Médicaments ---
-    df_drugs = extract_data_from_oracle("extract_drug.sql")
-    df_drugs = clean_dataframe(df_drugs, date_columns=["start_date", "end_date"])
-
-    expected_cols_drugs = [
-        "noobspat", "cycle_number", "start_date", "end_date",
-        "protocol_name", "protocol_type", "codepdt", "drug_name",
-        "code_voie", "unite", "dose_adm", "is_real_drug"
-    ]
-    missing_drug = set(expected_cols_drugs) - set(df_drugs.columns)
-    if missing_drug:
-        logging.warning("Colonnes manquantes dans df_drugs : %s", sorted(missing_drug))
-
-    df_drugs, hash_col_drug = remove_duplicates_and_hash(
-        df_drugs,
-        [
-            "noobspat", "cycle_number", "start_date", "end_date",
-            "protocol_name", "protocol_type", "codepdt", "drug_name",
-            "code_voie", "unite", "dose_adm", "is_real_drug"
-        ]
-    )
-
-    df_drugs = filter_existing_records(
-        df_drugs, postgres, "osiris.drug_administration", hash_col_drug
-    )
-
+    df_chimio = clean_dataframe(df_chimio_raw, date_columns=["dat_admini"])
+    
+    if 'num_doss' in df_chimio.columns:
+         df_chimio['num_doss'] = df_chimio['num_doss'].astype(str)
+         
+    df_chimio_final = df_chimio.copy()
+    
     logging.info(
-        "[OK] Extraction terminée : %d lignes (treatment_line), %d lignes (drug_administration)",
-        len(df_treatment), len(df_drugs)
+        "[OK] Extraction terminée. CHIMIOTHERAPIE: %d lignes. CHIMIO_PLAN: %d lignes.",
+        len(df_chimio_final),
+        len(df_plan)
     )
 
-    return df_treatment, df_drugs
+    # Retourne les deux DataFrames
+    return df_chimio_final, df_plan

@@ -377,6 +377,7 @@ def extract_rdv_data_to_file(cursor):
                     "date_rdv": row.date_rdv if _is_date_like(row.date_rdv) else None,
                     "libelle_examen": (row.libelle_examen or "").strip(),
                     "date_booked":row.date_booked if _is_date_like(row.date_rdv) else None,
+                    "rdv_status": row.rdv_status or "",
                 }
                 _dump(rec, f)
                 wrote += 1

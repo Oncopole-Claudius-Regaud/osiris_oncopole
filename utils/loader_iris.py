@@ -235,6 +235,14 @@ def load_to_postgresql(**kwargs):
     pg_hook = PostgresHook(postgres_conn_id=conn_id)
     pg_conn = pg_hook.get_conn()
     pg_cur = pg_conn.cursor()
+    
+    # ---------------- TRUNCATE des tables cibles ----------------
+    logging.info("[ETL] Vidage des tables cibles avant insertion")
+    pg_cur.execute("TRUNCATE TABLE osiris.patient CASCADE;")
+    pg_cur.execute("TRUNCATE TABLE osiris.visit CASCADE;")
+    pg_cur.execute("TRUNCATE TABLE osiris.diagnostic CASCADE;")
+    pg_cur.execute("TRUNCATE TABLE osiris.rdv CASCADE;")
+    pg_conn.commit()
 
     # ---------------- PATIENTS (stream + batch) ----------------
     patient_buffer: List[Tuple] = []
@@ -436,6 +444,8 @@ def load_to_postgresql(**kwargs):
     #  plus de TRUNCATE ici
     diag_buffer: List[Tuple] = []
     seen_diag_hash_batch = set()  # suivi des hash dans le batch courant (skip des doublons)
+    
+    latest_diag_by_key = {}  # clé = (ipp_ocr, code_cim)
 
     for d in _stream_rows("diagnostic"):
         # Dictionnaire pour le CALCUL DU HASH (on garde ta logique existante)
@@ -506,93 +516,84 @@ def load_to_postgresql(**kwargs):
         stage_m_recurrent     = none_if_empty(d.get("stage_m_recurrent"))
 
         stage_date            = coerce_date_or_none(d.get("stage_date"))
-
         
-        diag_buffer.append(
-            (
-                row_dict["ipp_ocr"],                 # 0
-                row_dict["date_prelevement"],   # 1
-                row_dict["diagnostic_source_value"], # 2
-                row_dict["diagnostic_concept_label"],# 3
-                row_dict["diagnostic_status"],       # 4
-                row_dict["diagnostic_create_date"],  # 6
-                row_dict["cim_updated_at"],          # 7  
-                diag_hash,                            # 9
-                row_dict["code_morphologique"],      # 10
-
-                # ---- Nouvelles colonnes (à partir de l'index 11) ----
-                tnm_code,                             # 11
-                cancer_type,                          # 12
-                cancer_site,                          # 13
-                t_stage_code,                         # 14
-                t_stage_desc,                         # 15
-                stage_t_after_path,                   # 16
-                stage_t_after_adjuv,                  # 17
-                stage_t_recurrent,                    # 18
-                n_stage_code,                         # 19
-                n_stage_desc,                         # 20
-                stage_n_after_path,                   # 21
-                stage_n_after_adjuv,                  # 22
-                stage_n_recurrent,                    # 23
-                m_stage_code,                         # 24
-                m_stage_desc,                         # 25
-                stage_m_after_path,                   # 26
-                stage_m_after_adjuv,                  # 27
-                stage_m_recurrent,                    # 28
-                stage_date,                           # 29 (date)
-            )
+            # Construction du tuple
+        diag_row = (
+            row_dict["ipp_ocr"], row_dict["date_prelevement"], row_dict["diagnostic_source_value"],
+            row_dict["diagnostic_concept_label"], row_dict["diagnostic_status"],
+            row_dict["diagnostic_create_date"], row_dict["cim_updated_at"], diag_hash,
+            row_dict["code_morphologique"], tnm_code, cancer_type, cancer_site,
+            t_stage_code, t_stage_desc, stage_t_after_path, stage_t_after_adjuv, stage_t_recurrent,
+            n_stage_code, n_stage_desc, stage_n_after_path, stage_n_after_adjuv, stage_n_recurrent,
+            m_stage_code, m_stage_desc, stage_m_after_path, stage_m_after_adjuv, stage_m_recurrent,
+            stage_date
         )
 
-        if len(diag_buffer) >= BATCH_SIZE:
-            _flush_values(
-                pg_cur,
-                """
-                INSERT INTO osiris.diagnostic (
-                    ipp_ocr, date_prelevement, code_cim, libelle_cim,
-                    diagnostic_status,
-                    date_diagnostic_created_at, date_diagnostic_updated_at,
-                    diagnostic_hash, code_morphologique,
-                    tnm_code, cancer_type, cancer_site,
-                    t_stage_code, t_stage_desc, stage_t_after_path, stage_t_after_adjuv, stage_t_recurrent,
-                    n_stage_code, n_stage_desc, stage_n_after_path, stage_n_after_adjuv, stage_n_recurrent,
-                    m_stage_code, m_stage_desc, stage_m_after_path, stage_m_after_adjuv, stage_m_recurrent,
-                    stage_date
-                ) VALUES %s
-                ON CONFLICT (diagnostic_hash) DO UPDATE SET
-                    ipp_ocr                     = EXCLUDED.ipp_ocr,
-                    date_prelevement       = COALESCE(EXCLUDED.date_prelevement, osiris.diagnostic.date_prelevement),
-                    code_cim                    = COALESCE(NULLIF(EXCLUDED.code_cim,''), osiris.diagnostic.code_cim),
-                    libelle_cim                 = COALESCE(NULLIF(EXCLUDED.libelle_cim,''), osiris.diagnostic.libelle_cim),
-                    diagnostic_status           = COALESCE(NULLIF(EXCLUDED.diagnostic_status,''), osiris.diagnostic.diagnostic_status),
-                    date_diagnostic_created_at  = COALESCE(EXCLUDED.date_diagnostic_created_at, osiris.diagnostic.date_diagnostic_created_at),
-                    date_diagnostic_updated_at  = COALESCE(EXCLUDED.date_diagnostic_updated_at, osiris.diagnostic.date_diagnostic_updated_at),
-                    code_morphologique          = COALESCE(NULLIF(EXCLUDED.code_morphologique,''), osiris.diagnostic.code_morphologique),
-                    tnm_code                    = COALESCE(NULLIF(EXCLUDED.tnm_code,''), osiris.diagnostic.tnm_code),
-                    cancer_type                 = COALESCE(NULLIF(EXCLUDED.cancer_type,''), osiris.diagnostic.cancer_type),
-                    cancer_site                 = COALESCE(NULLIF(EXCLUDED.cancer_site,''), osiris.diagnostic.cancer_site),
-                    t_stage_code                = COALESCE(NULLIF(EXCLUDED.t_stage_code,''), osiris.diagnostic.t_stage_code),
-                    t_stage_desc                = COALESCE(NULLIF(EXCLUDED.t_stage_desc,''), osiris.diagnostic.t_stage_desc),
-                    stage_t_after_path          = COALESCE(NULLIF(EXCLUDED.stage_t_after_path,''), osiris.diagnostic.stage_t_after_path),
-                    stage_t_after_adjuv         = COALESCE(NULLIF(EXCLUDED.stage_t_after_adjuv,''), osiris.diagnostic.stage_t_after_adjuv),
-                    stage_t_recurrent           = COALESCE(NULLIF(EXCLUDED.stage_t_recurrent,''), osiris.diagnostic.stage_t_recurrent),
-                    n_stage_code                = COALESCE(NULLIF(EXCLUDED.n_stage_code,''), osiris.diagnostic.n_stage_code),
-                    n_stage_desc                = COALESCE(NULLIF(EXCLUDED.n_stage_desc,''), osiris.diagnostic.n_stage_desc),
-                    stage_n_after_path          = COALESCE(NULLIF(EXCLUDED.stage_n_after_path,''), osiris.diagnostic.stage_n_after_path),
-                    stage_n_after_adjuv         = COALESCE(NULLIF(EXCLUDED.stage_n_after_adjuv,''), osiris.diagnostic.stage_n_after_adjuv),
-                    stage_n_recurrent           = COALESCE(NULLIF(EXCLUDED.stage_n_recurrent,''), osiris.diagnostic.stage_n_recurrent),
-                    m_stage_code                = COALESCE(NULLIF(EXCLUDED.m_stage_code,''), osiris.diagnostic.m_stage_code),
-                    m_stage_desc                = COALESCE(NULLIF(EXCLUDED.m_stage_desc,''), osiris.diagnostic.m_stage_desc),
-                    stage_m_after_path          = COALESCE(NULLIF(EXCLUDED.stage_m_after_path,''), osiris.diagnostic.stage_m_after_path),
-                    stage_m_after_adjuv         = COALESCE(NULLIF(EXCLUDED.stage_m_after_adjuv,''), osiris.diagnostic.stage_m_after_adjuv),
-                    stage_m_recurrent           = COALESCE(NULLIF(EXCLUDED.stage_m_recurrent,''), osiris.diagnostic.stage_m_recurrent),
-                    stage_date                  = COALESCE(EXCLUDED.stage_date, osiris.diagnostic.stage_date)
-                """,
-                diag_buffer,
-                label="diagnostics (batch)",
-                commit_conn=pg_conn,
-            )
-            # 🔸 On réinitialise le set pour le prochain batch
-            seen_diag_hash_batch.clear()
+        # Clé de regroupement (juste ipp_ocr + code_cim)
+        group_key = (row_dict["ipp_ocr"], row_dict["diagnostic_source_value"])
+        current_updated_at = row_dict["cim_updated_at"]
+
+        if group_key not in latest_diag_by_key or (
+            current_updated_at and current_updated_at > latest_diag_by_key[group_key]["updated_at"]
+        ):
+            latest_diag_by_key[group_key] = {
+                "row": diag_row,
+                "updated_at": current_updated_at
+            }
+
+    # Finalisation du buffer
+    diag_buffer = [entry["row"] for entry in latest_diag_by_key.values()]
+
+    if len(diag_buffer) >= BATCH_SIZE:
+        _flush_values(
+            pg_cur,
+            """
+            INSERT INTO osiris.diagnostic (
+                ipp_ocr, date_prelevement, code_cim, libelle_cim,
+                diagnostic_status,
+                date_diagnostic_created_at, date_diagnostic_updated_at,
+                diagnostic_hash, code_morphologique,
+                tnm_code, cancer_type, cancer_site,
+                t_stage_code, t_stage_desc, stage_t_after_path, stage_t_after_adjuv, stage_t_recurrent,
+                n_stage_code, n_stage_desc, stage_n_after_path, stage_n_after_adjuv, stage_n_recurrent,
+                m_stage_code, m_stage_desc, stage_m_after_path, stage_m_after_adjuv, stage_m_recurrent,
+                stage_date
+            ) VALUES %s
+            ON CONFLICT (diagnostic_hash) DO UPDATE SET
+                ipp_ocr                     = EXCLUDED.ipp_ocr,
+                date_prelevement       = COALESCE(EXCLUDED.date_prelevement, osiris.diagnostic.date_prelevement),
+                code_cim                    = COALESCE(NULLIF(EXCLUDED.code_cim,''), osiris.diagnostic.code_cim),
+                libelle_cim                 = COALESCE(NULLIF(EXCLUDED.libelle_cim,''), osiris.diagnostic.libelle_cim),
+                diagnostic_status           = COALESCE(NULLIF(EXCLUDED.diagnostic_status,''), osiris.diagnostic.diagnostic_status),
+                date_diagnostic_created_at  = COALESCE(EXCLUDED.date_diagnostic_created_at, osiris.diagnostic.date_diagnostic_created_at),
+                date_diagnostic_updated_at  = COALESCE(EXCLUDED.date_diagnostic_updated_at, osiris.diagnostic.date_diagnostic_updated_at),
+                code_morphologique          = COALESCE(NULLIF(EXCLUDED.code_morphologique,''), osiris.diagnostic.code_morphologique),
+                tnm_code                    = COALESCE(NULLIF(EXCLUDED.tnm_code,''), osiris.diagnostic.tnm_code),
+                cancer_type                 = COALESCE(NULLIF(EXCLUDED.cancer_type,''), osiris.diagnostic.cancer_type),
+                cancer_site                 = COALESCE(NULLIF(EXCLUDED.cancer_site,''), osiris.diagnostic.cancer_site),
+                t_stage_code                = COALESCE(NULLIF(EXCLUDED.t_stage_code,''), osiris.diagnostic.t_stage_code),
+                t_stage_desc                = COALESCE(NULLIF(EXCLUDED.t_stage_desc,''), osiris.diagnostic.t_stage_desc),
+                stage_t_after_path          = COALESCE(NULLIF(EXCLUDED.stage_t_after_path,''), osiris.diagnostic.stage_t_after_path),
+                stage_t_after_adjuv         = COALESCE(NULLIF(EXCLUDED.stage_t_after_adjuv,''), osiris.diagnostic.stage_t_after_adjuv),
+                stage_t_recurrent           = COALESCE(NULLIF(EXCLUDED.stage_t_recurrent,''), osiris.diagnostic.stage_t_recurrent),
+                n_stage_code                = COALESCE(NULLIF(EXCLUDED.n_stage_code,''), osiris.diagnostic.n_stage_code),
+                n_stage_desc                = COALESCE(NULLIF(EXCLUDED.n_stage_desc,''), osiris.diagnostic.n_stage_desc),
+                stage_n_after_path          = COALESCE(NULLIF(EXCLUDED.stage_n_after_path,''), osiris.diagnostic.stage_n_after_path),
+                stage_n_after_adjuv         = COALESCE(NULLIF(EXCLUDED.stage_n_after_adjuv,''), osiris.diagnostic.stage_n_after_adjuv),
+                stage_n_recurrent           = COALESCE(NULLIF(EXCLUDED.stage_n_recurrent,''), osiris.diagnostic.stage_n_recurrent),
+                m_stage_code                = COALESCE(NULLIF(EXCLUDED.m_stage_code,''), osiris.diagnostic.m_stage_code),
+                m_stage_desc                = COALESCE(NULLIF(EXCLUDED.m_stage_desc,''), osiris.diagnostic.m_stage_desc),
+                stage_m_after_path          = COALESCE(NULLIF(EXCLUDED.stage_m_after_path,''), osiris.diagnostic.stage_m_after_path),
+                stage_m_after_adjuv         = COALESCE(NULLIF(EXCLUDED.stage_m_after_adjuv,''), osiris.diagnostic.stage_m_after_adjuv),
+                stage_m_recurrent           = COALESCE(NULLIF(EXCLUDED.stage_m_recurrent,''), osiris.diagnostic.stage_m_recurrent),
+                stage_date                  = COALESCE(EXCLUDED.stage_date, osiris.diagnostic.stage_date)
+            """,
+            diag_buffer,
+            label="diagnostics (batch)",
+            commit_conn=pg_conn,
+        )
+        # 🔸 On réinitialise le set pour le prochain batch
+        seen_diag_hash_batch.clear()
 
     _flush_values(
         pg_cur,
@@ -765,9 +766,10 @@ def load_to_postgresql(**kwargs):
         date_rdv = coerce_date_or_none(r.get("date_rdv"))
         libelle_examen = none_if_empty(r.get("libelle_examen"))
         date_booked = coerce_date_or_none(r.get("date_booked"))
+        rdv_status = none_if_empty(r.get("rdv_status"))
 
         # clé unique possible : (ipp_ocr, date_rdv, libelle_examen)
-        rdv_key = (ipp, date_rdv, libelle_examen)
+        rdv_key = (ipp, date_rdv, libelle_examen,rdv_status)
 
         # skip invalid or duplicate records
         if not ipp or not date_rdv or rdv_key in seen_rdv:
@@ -778,7 +780,8 @@ def load_to_postgresql(**kwargs):
             ipp,             # ipp_ocr
             date_rdv,        # date_rdv
             libelle_examen,  # libelle_examen
-            date_booked,     # date_booked
+            date_booked,
+            rdv_status,      # date_booked
         ))
 
         # flush intermédiaire
@@ -787,13 +790,14 @@ def load_to_postgresql(**kwargs):
                 pg_cur,
                 """
                 INSERT INTO osiris.rdv (
-                    ipp_ocr, date_rdv, libelle_examen, date_booked
+                    ipp_ocr, date_rdv, libelle_examen, date_booked, rdv_status
                 ) VALUES %s
-                ON CONFLICT (ipp_ocr, date_rdv, libelle_examen) DO UPDATE
+                ON CONFLICT (ipp_ocr, date_rdv, libelle_examen, date_booked, rdv_status) DO UPDATE
                 SET
                   date_rdv       = COALESCE(EXCLUDED.date_rdv,       osiris.rdv.date_rdv),
                   libelle_examen = COALESCE(EXCLUDED.libelle_examen, osiris.rdv.libelle_examen),
-                  date_booked    = COALESCE(EXCLUDED.date_booked,    osiris.rdv.date_booked)
+                  date_booked    = COALESCE(EXCLUDED.date_booked,    osiris.rdv.date_booked),
+                  rdv_status     = COALESCE(EXCLUDED.rdv_status,    osiris.rdv.rdv_status)
                 """,
                 rdv_buffer,
                 label="rdv (batch)",
@@ -808,13 +812,14 @@ def load_to_postgresql(**kwargs):
             pg_cur,
             """
             INSERT INTO osiris.rdv (
-                ipp_ocr, date_rdv, libelle_examen, date_booked
+                ipp_ocr, date_rdv, libelle_examen, date_booked, rdv_status
             ) VALUES %s
-            ON CONFLICT (ipp_ocr, date_rdv, libelle_examen) DO UPDATE
+            ON CONFLICT (ipp_ocr, date_rdv, libelle_examen, date_booked, rdv_status) DO UPDATE
             SET
               date_rdv       = COALESCE(EXCLUDED.date_rdv,       osiris.rdv.date_rdv),
               libelle_examen = COALESCE(EXCLUDED.libelle_examen, osiris.rdv.libelle_examen),
-              date_booked    = COALESCE(EXCLUDED.date_booked,    osiris.rdv.date_booked)
+              date_booked    = COALESCE(EXCLUDED.date_booked,    osiris.rdv.date_booked),
+              rdv_status     = COALESCE(EXCLUDED.rdv_status,    osiris.rdv.rdv_status)
             """,
             rdv_buffer,
             label="rdv (final)",
@@ -830,6 +835,7 @@ def load_to_postgresql(**kwargs):
     pg_cur.close()
     pg_conn.close()
     logging.info("Chargement terminé avec succès")
+
 
 
 
