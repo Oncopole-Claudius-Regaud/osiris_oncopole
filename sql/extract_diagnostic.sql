@@ -49,7 +49,7 @@ SELECT
 
 FROM SQLUser.PA_PATMAS pat
 JOIN SQLUser.PA_Problem diag ON diag.PROB_ParRef = pat.PAPMI_RowId1
-JOIN SQLUser.MRC_ICDDx MRC ON MRC.MRCID_RowId = diag.PROB_ICDCode_DR
+INNER JOIN SQLUser.MRC_ICDDx MRC ON MRC.MRCID_RowId = diag.PROB_ICDCode_DR
 
 -- Jointure "Stage Cancer" comme dans BO
 LEFT JOIN SQLUser.PA_ProblemCancerStage STG ON STG.STAGE_ParRef = diag.PROB_RowId
@@ -73,9 +73,12 @@ WHERE
 
     -- 4. Filtrer les codes CIM-10 pour ne garder que les cancers (C00-C97 et D00-D48)
     AND (
-        SUBSTR(MRC.MRCID_Code, 1, 1) = 'C'
-        OR (
+	MRC.MRCID_Code IS NULL
+	OR(
+           SUBSTR(MRC.MRCID_Code, 1, 1) = 'C'
+           OR (
             SUBSTR(MRC.MRCID_Code, 1, 1) = 'D'
             AND TO_NUMBER(SUBSTR(MRC.MRCID_Code, 2, 3)) <= 48
+           )
         )
     )
