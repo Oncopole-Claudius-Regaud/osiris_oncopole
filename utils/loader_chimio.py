@@ -44,7 +44,7 @@ def load_chimio_plan_data(df_plan):
     pg_cur.execute("TRUNCATE TABLE osiris.chimio_plan;")
     pg_conn.commit()
 
-    target_cols = ["NUM_DOSS", "DAT_OUV", "CODE_LOC_CALC"]
+    target_cols = ["NUM_DOSS", "DAT_OUV", "CODE_LOC"]
     df_insert = df[target_cols] 
 
     buffer = []

@@ -27,5 +27,6 @@ utils/patients.py
 docs/mesh_fre_20250101.xml
 osiris/
 oeci/
-omop/
+omop
+minimal_dataset/
 

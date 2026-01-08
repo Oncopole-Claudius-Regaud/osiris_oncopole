@@ -45,7 +45,7 @@ def extract_chimio_plan_data():
     if 'num_doss' in df_plan.columns:
          df_plan['num_doss'] = df_plan['num_doss'].astype(str)
          
-    return df_plan[['num_doss', 'dat_ouv', 'code_loc_calc']]
+    return df_plan[['num_doss', 'dat_ouv', 'code_loc']]
 
 
 def extract_chimio_data():

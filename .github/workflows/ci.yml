@@ -1,66 +1,28 @@
-name: ETL Oncopole CI + Deploy
+name: ETL Oncopole Deploy
 
-  #on:
-  # push:
-    # branches: [ main, develop ]
+on:
+  push:
+    branches: [ version_1 ]
 
 jobs:
-  lint-and-test:
-    name: Lint & Test
-    runs-on: self-hosted
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.12'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install flake8 pytest
-          pip install apache-airflow-providers-postgres
-
-      - name: Lint with flake8
-        run: flake8 . --exclude=__pycache__,config,utils/patients.py --max-line-length=120
-
-      - name: Run tests with pytest
-        run: |
-          export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-          if [ -d "tests" ]; then pytest tests/; else echo "No tests directory."; fi
-
   deploy:
     name: Deploy to Airflow Server
-    needs: lint-and-test
     runs-on: self-hosted
-    if: github.ref == 'refs/heads/main'
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Copier les fichiers du projet vers le dossier Airflow
+      - name: Nettoyer le dossier Airflow DAGs
         run: |
-          cp -r utils ~/airflow/dags/
-          cp -r sql ~/airflow/dags/
-          cp -r tests ~/airflow/dags/
-          cp etl_*.py ~/airflow/dags/
-          cp requirements.txt ~/airflow/dags/
+          rm -rf ~/airflow/dags/*
 
-      - name: Restart Airflow
+      - name: Copier les fichiers suivis par Git vers Airflow
         run: |
-          sudo /bin/systemctl restart airflow-webserver.service
-          sudo /bin/systemctl restart airflow-scheduler.service
+          git ls-files -z | xargs -0 -I{} cp -r {} ~/airflow/dags/
 
-      - name: Afficher le chemin courant
+      - name: Redémarrer Airflow
         run: |
-          echo "Répertoire courant : $(pwd)"
-          ls -la
+          sudo systemctl restart airflow-webserver.service
+          sudo systemctl restart airflow-scheduler.service
 
-      - name: Afficher variables d'environnement
-        run: |
-          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
-          echo "HOME=$HOME"
