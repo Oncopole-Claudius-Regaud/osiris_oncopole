@@ -1,8 +1,8 @@
 name: ETL Oncopole Deploy
 
-on:
-  push:
-    branches: [ version_1 ]
+#on:
+  #push:
+    #branches: [ version_1 ]
 
 jobs:
   deploy:
