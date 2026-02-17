@@ -1,6 +1,7 @@
 SELECT
     ori.I_LABEL,
     ori.I_PATIENT_KEY,
+    ori.I_STATE AS I_STATE,
     ori.I_PLANNED_START,
     ori.I_PLANNED_END,
     ori.I_KEY,
