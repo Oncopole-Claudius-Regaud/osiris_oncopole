@@ -111,14 +111,15 @@ def extract_and_load_chirurgie():
         dat_fin_reel = row.i_planned_end if pd.notnull(row.i_planned_end) else None
         patient_key = str(row.i_patient_key) if pd.notnull(row.i_patient_key) else None
         code_ccam = str(row.in_code) if pd.notnull(row.in_code) else None
+        i_state = str(row.i_state) if  pd.notnull(row.i_state) else None
 
-        buffer.append((ipp_ocr, nom_interv, dat_deb_reel, dat_fin_reel, patient_key, code_ccam))
+        buffer.append((ipp_ocr, nom_interv, dat_deb_reel, dat_fin_reel, patient_key, code_ccam,i_state))
 
         if len(buffer) >= BATCH_SIZE:
             try:
                 execute_values(pg_cur, f"""
                     INSERT INTO {pg_table} (
-                        ipp_ocr, nom_interv, dat_deb_reel, dat_fin_reel, patient_key, code_ccam
+                        ipp_ocr, nom_interv, dat_deb_reel, dat_fin_reel, patient_key, code_ccam, i_state
                     ) VALUES %s
                 """, buffer)
                 pg_conn.commit()
@@ -134,7 +135,7 @@ def extract_and_load_chirurgie():
         try:
             execute_values(pg_cur, f"""
                 INSERT INTO {pg_table} (
-                    ipp_ocr, nom_interv, dat_deb_reel, dat_fin_reel, patient_key, code_ccam
+                    ipp_ocr, nom_interv, dat_deb_reel, dat_fin_reel, patient_key, code_ccam, i_state
                 ) VALUES %s
             """, buffer)
             pg_conn.commit()
