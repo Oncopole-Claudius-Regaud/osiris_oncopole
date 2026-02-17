@@ -11,18 +11,27 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Nettoyer le dossier Airflow DAGs
+      - name: Déployer dans ~/airflow/dags/osiris_oncopole (sans écraser le reste)
         run: |
-          rm -rf ~/airflow/dags/*
+          set -e
 
-      - name: Copier les fichiers suivis par Git vers Airflow
-        run: |
-          git ls-files -z | xargs -0 -I{} cp -r {} ~/airflow/dags/
+          TARGET="$HOME/airflow/dags/osiris_oncopole"
+
+          echo "Cleaning project folder: $TARGET"
+          rm -rf "$TARGET"
+          mkdir -p "$TARGET"
+
+          echo "Copying tracked files to $TARGET"
+          git ls-files | while read file; do
+            mkdir -p "$TARGET/$(dirname "$file")"
+            cp -r "$file" "$TARGET/$file"
+          done
+
+          echo "Deployment finished"
 
       - name: Redémarrer Airflow
         run: |
           sudo systemctl restart airflow-webserver.service
           sudo systemctl restart airflow-scheduler.service
-
