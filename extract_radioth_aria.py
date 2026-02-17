@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from utils.extract_radioth_aria import extract_and_load_radioth_aria
+from osiris_oncopole.utils.extract_radioth_aria import extract_and_load_radioth_aria
 
 DAG_ID = "extract_radioth_aria"
 

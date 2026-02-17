@@ -1,4 +1,4 @@
-from utils.db import connect_to_iris
+from osiris_oncopole.utils.db import connect_to_iris
 from datetime import datetime, timedelta
 
 

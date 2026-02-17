@@ -1,6 +1,6 @@
 import logging
 import hashlib
-from utils.helpers import compute_condition_hash, compute_treatment_hash, compute_visit_hash
+from osiris_oncopole.utils.helpers import compute_condition_hash, compute_treatment_hash, compute_visit_hash
 from psycopg2.extras import execute_values
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.models import Variable

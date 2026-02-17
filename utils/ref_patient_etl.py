@@ -4,7 +4,7 @@ from typing import Optional, List, Tuple, Dict, Any
 
 import pandas as pd
 from airflow.models import Variable
-from utils.db import connect_to_oracle_ref
+from osiris_oncopole.utils.db import connect_to_oracle_ref
 
 # --------- Résolution de chemin absolu vers /dags/sql ----------
 # __file__ = /home/administrateur/airflow/dags/utils/ref_patient_etl.py

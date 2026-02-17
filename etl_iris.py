@@ -8,10 +8,10 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.stats import Stats
 
-from utils.db import connect_to_iris
-from utils.logger import configure_logger
-from utils.email_notifier import notify_failure, notify_success
-from utils.loader_iris import load_to_postgresql
+from osiris_oncopole.utils.db import connect_to_iris
+from osiris_oncopole.utils.logger import configure_logger
+from osiris_oncopole.utils.email_notifier import notify_failure, notify_success
+from osiris_oncopole.utils.loader_iris import load_to_postgresql
 
 # Logger global
 configure_logger()
@@ -54,7 +54,7 @@ def extract_data_from_iris_osiris(**kwargs):
         cursor = conn.cursor()
 
         # 2) Extraction en streaming (écrit .jsonl directement)
-        from utils.extract import extract_all_data_streaming
+        from osiris_oncopole.utils.extract import extract_all_data_streaming
         extract_all_data_streaming(cursor)
 
         # 3) Ferme DB et force un GC

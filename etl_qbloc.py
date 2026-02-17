@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from utils.extract_and_load_qbloc import extract_and_load_chirurgie
+from osiris_oncopole.utils.extract_and_load_qbloc import extract_and_load_chirurgie
 
 DAG_ID = "extract_qbloc"
 

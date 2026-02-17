@@ -11,7 +11,7 @@ import psycopg2.extras
 import psycopg2.errors
 
 # Assurez-vous que cette fonction connect_to_oracle est disponible
-from utils.db import connect_to_oracle
+from osiris_oncopole.utils.db import connect_to_oracle
 
 # ----------------------------------------------------
 # PARAMÈTRES ET MAPPINGS

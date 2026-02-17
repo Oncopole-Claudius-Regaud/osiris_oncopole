@@ -11,7 +11,7 @@ from airflow.models import Variable
 from psycopg2.extras import execute_values
 
 # utilise TA fonction existante
-from utils.helpers import compute_diagnostic_hash
+from osiris_oncopole.utils.helpers import compute_diagnostic_hash
 
 # --------------------------------------------------------------------
 # Config

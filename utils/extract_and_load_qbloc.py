@@ -3,7 +3,7 @@ import logging
 import pandas as pd
 from datetime import datetime
 from airflow.providers.postgres.hooks.postgres import PostgresHook
-from utils.db import connect_to_oracle_ref
+from osiris_oncopole.utils.db import connect_to_oracle_ref
 from psycopg2.extras import execute_values
 
 BATCH_SIZE = 5000

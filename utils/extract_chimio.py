@@ -1,9 +1,9 @@
 import pandas as pd
 import logging
 # Les imports suivants sont supposés exister dans votre environnement
-from utils.db import get_postgres_hook, oracle_radio
-from utils.sql_loader import load_sql
-from utils.transform_chimio import clean_dataframe 
+from osiris_oncopole.utils.db import get_postgres_hook, oracle_radio
+from osiris_oncopole.utils.sql_loader import load_sql
+from osiris_oncopole.utils.transform_chimio import clean_dataframe 
 
 # ----------------------------------------------------------------------
 # FONCTIONS D'EXTRACTION ORACLE (mêmes que précédemment)

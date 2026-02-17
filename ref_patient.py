@@ -4,7 +4,7 @@ from airflow.models.dag import DAG
 from datetime import datetime
 
 # Importez TOUTES les fonctions depuis votre fichier de logique, y compris les nouvelles
-from ref_patient_extract import (
+from osiris_oncopole.utils.ref_patient_extract import (
     extraire_donnees_patient,
     charger_donnees_patient,
     charger_patient_tracker

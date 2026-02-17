@@ -1,6 +1,6 @@
 import logging, os, json, gc
 from datetime import datetime, date, time
-from utils.sql_loader import load_sql
+from osiris_oncopole.utils.sql_loader import load_sql
 
 CHUNK = 10_000
 OUTDIR = "/tmp/etl_iris"

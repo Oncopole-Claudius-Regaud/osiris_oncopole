@@ -2,8 +2,8 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from pathlib import Path
 from datetime import datetime
-from utils.mesh_parser import parse_mesh
-from utils.pg_loader import truncate_tables, copy_csv
+from osiris_oncopole.utils.mesh_parser import parse_mesh
+from osiris_oncopole.utils.pg_loader import truncate_tables, copy_csv
 
 
 def load_all_csvs():

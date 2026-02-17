@@ -3,7 +3,7 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.operators.email import EmailOperator
 from datetime import datetime
-from utils.generate_status_table import build_dag_status_table
+from osiris_oncopole.utils.generate_status_table import build_dag_status_table
 
 with DAG(
     dag_id="dag_supervision_status",

@@ -1,7 +1,7 @@
 import os
 import logging
-from utils.db import connect_to_iris
-from utils.extract import extract_measure_data_to_file  # ✅ on réutilise la fonction streaming
+from osiris_oncopole.utils.db import connect_to_iris
+from osiris_oncopole.utils.extract import extract_measure_data_to_file  # ✅ on réutilise la fonction streaming
 
 TMP_DIR = "/tmp/etl_iris"
 

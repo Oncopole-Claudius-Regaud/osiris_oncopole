@@ -2,7 +2,7 @@ import os
 import logging
 import pandas as pd
 from airflow.providers.postgres.hooks.postgres import PostgresHook
-from utils.db import oracle_radio
+from osiris_oncopole.utils.db import oracle_radio
 from psycopg2.extras import execute_values
 
 BATCH_SIZE = 5000

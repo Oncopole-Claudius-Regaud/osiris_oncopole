@@ -9,10 +9,10 @@ import os
 import json # Import nécessaire pour la sérialisation/désérialisation si on passait par XCom
 
 # Import des fonctions (assurez-vous que extract_chimio_data renvoie les deux DF)
-from utils.extract_chimio import extract_chimio_data 
-from utils.transform_chimio import transform_all
-from utils.email_notifier import notify_failure
-from utils.loader_chimio import load_chimio_data, load_chimio_plan_data 
+from osiris_oncopole.utils.extract_chimio import extract_chimio_data 
+from osiris_oncopole.utils.transform_chimio import transform_all
+from osiris_oncopole.utils.email_notifier import notify_failure
+from osiris_oncopole.utils.loader_chimio import load_chimio_data, load_chimio_plan_data 
 
 # Configuration de base du DAG
 default_args = {
