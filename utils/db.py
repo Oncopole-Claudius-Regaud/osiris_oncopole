@@ -68,7 +68,43 @@ def connect_to_qprod(conn_id: str = "QPROD"):
     """
     Connexion Oracle pour QPROD (Airflow connection : QPROD).
     """
-    return connect_to_oracle_ref(conn_id)
+    conn = BaseHook.get_connection(conn_id)
+    lib_dir = conn.extra_dejson.get("lib_dir", "/opt/oracle/instantclient_23_7")
+    service_name = conn.extra_dejson.get("service_name", "QPROD.icr.local")
+    hosts = [h.strip() for h in (conn.host or "").split(",") if h.strip()]
+    port = conn.port or 1521
+
+    if not hosts:
+        raise ValueError(f"Connexion Oracle QPROD invalide: host={conn.host!r}")
+
+    try:
+        cx_Oracle.init_oracle_client(lib_dir=lib_dir)
+    except cx_Oracle.ProgrammingError:
+        # Si déjà initialisé
+        pass
+
+    if len(hosts) > 1:
+        address_list = "".join(
+            [f"(ADDRESS=(PROTOCOL=TCP)(HOST={h})(PORT={port}))" for h in hosts]
+        )
+        dsn = (
+            f"(DESCRIPTION=(LOAD_BALANCE=YES)(FAILOVER=YES){address_list}"
+            f"(CONNECT_DATA=(SERVICE_NAME={service_name})))"
+        )
+    else:
+        dsn = f"//{hosts[0]}:{port}/{service_name}"
+
+    logging.info("Tentative de connexion Oracle QPROD via DSN : %s", dsn)
+
+    connection = cx_Oracle.connect(
+        user=conn.login,
+        password=conn.password,
+        dsn=dsn,
+        encoding="UTF-8",
+    )
+
+    logging.info("Connexion Oracle QPROD établie avec succès.")
+    return connection
 
 
 def get_postgres_hook(conn_id=None):
