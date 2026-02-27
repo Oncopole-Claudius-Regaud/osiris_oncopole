@@ -64,6 +64,13 @@ def connect_to_oracle_ref(conn_id: str = "qblocp"):
     return connection
 
 
+def connect_to_qprod(conn_id: str = "QPROD"):
+    """
+    Connexion Oracle pour QPROD (Airflow connection : QPROD).
+    """
+    return connect_to_oracle_ref(conn_id)
+
+
 def get_postgres_hook(conn_id=None):
     """Récupère un hook PostgreSQL via Airflow Variable (ou fallback postgres_test)."""
     if not conn_id:
