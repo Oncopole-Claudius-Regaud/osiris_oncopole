@@ -3,6 +3,7 @@ import json
 import os
 import re
 import gc
+import hashlib
 from datetime import datetime, date
 from typing import Iterable, Dict, Any, List, Tuple
 
@@ -312,10 +313,60 @@ def load_to_postgresql(**kwargs):
         label="patients (final)",
         commit_conn=pg_conn,
     )
-    
+
+    patient_ipp_set = set(seen_ipp)
+    logging.info("[ETL] Patient refs loaded for visits: %s ipp", len(patient_ipp_set))
+
+    # La table preadmission est historisée: pas de TRUNCATE.
+    # On maintient un hash de ligne pour ignorer les doublons déjà chargés.
+    preadmission_hash_expr_sql = """
+    md5(
+        COALESCE(BTRIM(ipp_ocr), '') || '|' ||
+        COALESCE(visit_start_date::text, '') || '|' ||
+        COALESCE(visit_start_time::text, '') || '|' ||
+        COALESCE(visit_end_date::text, '') || '|' ||
+        COALESCE(visit_end_time::text, '') || '|' ||
+        COALESCE(visit_estimated_end_date::text, '') || '|' ||
+        COALESCE(visit_estimated_end_time::text, '') || '|' ||
+        COALESCE(BTRIM(visit_functional_unit), '') || '|' ||
+        COALESCE(BTRIM(visit_type), '') || '|' ||
+        COALESCE(BTRIM(visit_status), '') || '|' ||
+        COALESCE(BTRIM(visit_reason), '') || '|' ||
+        COALESCE(visit_reason_create_date::text, '') || '|' ||
+        COALESCE(BTRIM(is_preadmission), '') || '|' ||
+        COALESCE(BTRIM(visit_episode_id), '') || '|' ||
+        COALESCE(BTRIM(visit_code_unit), '') || '|' ||
+        COALESCE(BTRIM(visit_responsible_unit_desc), '')
+    )
+    """
+    pg_cur.execute(
+        "ALTER TABLE osiris.visit_preadmission "
+        "ADD COLUMN IF NOT EXISTS preadmission_hash TEXT;"
+    )
+    pg_cur.execute(
+        f"""
+        UPDATE osiris.visit_preadmission
+        SET preadmission_hash = {preadmission_hash_expr_sql}
+        WHERE COALESCE(preadmission_hash, '') = '';
+        """
+    )
+    preadmission_backfilled = pg_cur.rowcount
+    pg_cur.execute(
+        "CREATE INDEX IF NOT EXISTS visit_preadmission_hash_idx "
+        "ON osiris.visit_preadmission (preadmission_hash);"
+    )
+    pg_conn.commit()
+    logging.info(
+        "[ETL] visit_preadmission hash ready (%s lignes backfilled)",
+        preadmission_backfilled,
+    )
+
     # ---------------- VISITS (stream + batch, upsert) ----------------
     visit_buffer: List[Tuple] = []
+    visit_preadmission_buffer: List[Tuple] = []
     seen_visit_keys = set()
+    routed_to_visit = 0
+    routed_to_visit_preadmission = 0
 
     def _to_str_date(x):
         if x is None: return None
@@ -330,8 +381,113 @@ def load_to_postgresql(**kwargs):
                 return x.strftime("%H:%M:%S")
             except Exception:
                 pass
-       # s = str(x).strip()
-        #return s if s else None
+        return None
+
+    def _build_visit_tuple(v, ipp, ep, is_pre_str):
+        return (
+            ipp,
+            _to_str_date(v.get("visit_start_date")),
+            _to_str_time(v.get("visit_start_time")),
+            _to_str_date(v.get("visit_end_date")),
+            _to_str_time(v.get("visit_end_time")),
+            _to_str_date(v.get("visit_estimated_end_date")),
+            _to_str_time(v.get("visit_estimated_end_time")),
+            none_if_empty(v.get("visit_functional_unit")),
+            none_if_empty(v.get("visit_type")),
+            none_if_empty(v.get("visit_status")),
+            none_if_empty(v.get("visit_reason")),
+            _to_str_date(v.get("visit_reason_create_date")),
+            is_pre_str,
+            ep,  # visit_episode_id
+            none_if_empty(v.get("visit_code_unit")),
+            none_if_empty(v.get("visit_responsible_unit_desc")),
+        )
+
+    def _build_visit_upsert_sql(target_table: str) -> str:
+        return f"""
+        INSERT INTO {target_table} (
+            ipp_ocr,
+            visit_start_date, visit_start_time,
+            visit_end_date, visit_end_time,
+            visit_estimated_end_date, visit_estimated_end_time,
+            visit_functional_unit, visit_type, visit_status,
+            visit_reason, visit_reason_create_date, is_preadmission,
+            visit_episode_id, visit_code_unit, visit_responsible_unit_desc
+        ) VALUES %s
+        ON CONFLICT (ipp_ocr, visit_episode_id) DO UPDATE SET
+            visit_start_date          = COALESCE(EXCLUDED.visit_start_date,          {target_table}.visit_start_date),
+            visit_start_time          = COALESCE(EXCLUDED.visit_start_time,          {target_table}.visit_start_time),
+            visit_end_date            = COALESCE(EXCLUDED.visit_end_date,            {target_table}.visit_end_date),
+            visit_end_time            = COALESCE(EXCLUDED.visit_end_time,            {target_table}.visit_end_time),
+            visit_estimated_end_date  = COALESCE(EXCLUDED.visit_estimated_end_date,  {target_table}.visit_estimated_end_date),
+            visit_estimated_end_time  = COALESCE(EXCLUDED.visit_estimated_end_time,  {target_table}.visit_estimated_end_time),
+            visit_functional_unit     = COALESCE(NULLIF(EXCLUDED.visit_functional_unit,''), {target_table}.visit_functional_unit),
+            visit_code_unit           = COALESCE(NULLIF(EXCLUDED.visit_code_unit,''), {target_table}.visit_code_unit),
+            visit_responsible_unit_desc = COALESCE(NULLIF(EXCLUDED.visit_responsible_unit_desc,''), {target_table}.visit_responsible_unit_desc),
+            visit_type                = COALESCE(NULLIF(EXCLUDED.visit_type,''),     {target_table}.visit_type),
+            visit_status              = COALESCE(NULLIF(EXCLUDED.visit_status,''),   {target_table}.visit_status),
+            visit_reason              = COALESCE(NULLIF(EXCLUDED.visit_reason,''),   {target_table}.visit_reason),
+            visit_reason_create_date  = COALESCE(EXCLUDED.visit_reason_create_date,  {target_table}.visit_reason_create_date),
+            is_preadmission           = COALESCE(NULLIF(EXCLUDED.is_preadmission,''), {target_table}.is_preadmission)
+        """
+
+    visit_upsert_sql = _build_visit_upsert_sql("osiris.visit")
+
+    def _build_preadmission_hash(visit_row: Tuple) -> str:
+        hash_source = "|".join("" if x is None else str(x).strip() for x in visit_row)
+        return hashlib.md5(hash_source.encode("utf-8")).hexdigest()
+
+    preadmission_insert_sql = """
+    WITH incoming (
+        ipp_ocr,
+        visit_start_date, visit_start_time,
+        visit_end_date, visit_end_time,
+        visit_estimated_end_date, visit_estimated_end_time,
+        visit_functional_unit, visit_type, visit_status,
+        visit_reason, visit_reason_create_date, is_preadmission,
+        visit_episode_id, visit_code_unit, visit_responsible_unit_desc,
+        preadmission_hash
+    ) AS (VALUES %s),
+    dedup AS (
+        SELECT DISTINCT ON (preadmission_hash)
+            ipp_ocr,
+            visit_start_date, visit_start_time,
+            visit_end_date, visit_end_time,
+            visit_estimated_end_date, visit_estimated_end_time,
+            visit_functional_unit, visit_type, visit_status,
+            visit_reason, visit_reason_create_date, is_preadmission,
+            visit_episode_id, visit_code_unit, visit_responsible_unit_desc,
+            preadmission_hash
+        FROM incoming
+        WHERE preadmission_hash IS NOT NULL
+        ORDER BY preadmission_hash
+    )
+    INSERT INTO osiris.visit_preadmission (
+        ipp_ocr,
+        visit_start_date, visit_start_time,
+        visit_end_date, visit_end_time,
+        visit_estimated_end_date, visit_estimated_end_time,
+        visit_functional_unit, visit_type, visit_status,
+        visit_reason, visit_reason_create_date, is_preadmission,
+        visit_episode_id, visit_code_unit, visit_responsible_unit_desc,
+        preadmission_hash
+    )
+    SELECT
+        d.ipp_ocr,
+        d.visit_start_date, d.visit_start_time,
+        d.visit_end_date, d.visit_end_time,
+        d.visit_estimated_end_date, d.visit_estimated_end_time,
+        d.visit_functional_unit, d.visit_type, d.visit_status,
+        d.visit_reason, d.visit_reason_create_date, d.is_preadmission,
+        d.visit_episode_id, d.visit_code_unit, d.visit_responsible_unit_desc,
+        d.preadmission_hash
+    FROM dedup d
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM osiris.visit_preadmission vp
+        WHERE vp.preadmission_hash = d.preadmission_hash
+    )
+    """
 
     # priorité au nouveau fichier; fallback sur l'ancien si besoin
     visits_iter = _stream_rows("visits")
@@ -354,91 +510,52 @@ def load_to_postgresql(**kwargs):
             s = (str(is_pre).strip() if is_pre is not None else "")
             is_pre_str = s if s else None
 
-        visit_buffer.append((
-            ipp,
-            _to_str_date(v.get("visit_start_date")),
-            _to_str_time(v.get("visit_start_time")),
-            _to_str_date(v.get("visit_end_date")),
-            _to_str_time(v.get("visit_end_time")),
-            _to_str_date(v.get("visit_estimated_end_date")),
-            _to_str_time(v.get("visit_estimated_end_time")),
-            none_if_empty(v.get("visit_functional_unit")),
-            none_if_empty(v.get("visit_type")),
-            none_if_empty(v.get("visit_status")),
-            none_if_empty(v.get("visit_reason")),
-            _to_str_date(v.get("visit_reason_create_date")),
-            is_pre_str,
-            ep,  # visit_episode_id
-            none_if_empty(v.get("visit_code_unit")),
-            none_if_empty(v.get("visit_responsible_unit_desc")),
-        ))
+        visit_row = _build_visit_tuple(v, ipp, ep, is_pre_str)
+
+        if ipp in patient_ipp_set:
+            visit_buffer.append(visit_row)
+            routed_to_visit += 1
+        else:
+            visit_preadmission_buffer.append(visit_row + (_build_preadmission_hash(visit_row),))
+            routed_to_visit_preadmission += 1
 
         if len(visit_buffer) >= BATCH_SIZE:
             _flush_values(
                 pg_cur,
-                """
-                INSERT INTO osiris.visit (
-                    ipp_ocr,
-                    visit_start_date, visit_start_time,
-                    visit_end_date, visit_end_time,
-                    visit_estimated_end_date, visit_estimated_end_time,
-                    visit_functional_unit, visit_type, visit_status,
-                    visit_reason, visit_reason_create_date, is_preadmission,
-                    visit_episode_id, visit_code_unit, visit_responsible_unit_desc
-                ) VALUES %s
-                ON CONFLICT (ipp_ocr, visit_episode_id) DO UPDATE SET
-                    visit_start_date          = COALESCE(EXCLUDED.visit_start_date,          osiris.visit.visit_start_date),
-                    visit_start_time          = COALESCE(EXCLUDED.visit_start_time,          osiris.visit.visit_start_time),
-                    visit_end_date            = COALESCE(EXCLUDED.visit_end_date,            osiris.visit.visit_end_date),
-                    visit_end_time            = COALESCE(EXCLUDED.visit_end_time,            osiris.visit.visit_end_time),
-                    visit_estimated_end_date  = COALESCE(EXCLUDED.visit_estimated_end_date,  osiris.visit.visit_estimated_end_date),
-                    visit_estimated_end_time  = COALESCE(EXCLUDED.visit_estimated_end_time,  osiris.visit.visit_estimated_end_time),
-                    visit_functional_unit     = COALESCE(NULLIF(EXCLUDED.visit_functional_unit,''), osiris.visit.visit_functional_unit),
-                    visit_code_unit    = COALESCE(NULLIF(EXCLUDED.visit_code_unit,''), osiris.visit.visit_code_unit),
-                    visit_responsible_unit_desc    = COALESCE(NULLIF(EXCLUDED.visit_responsible_unit_desc,''), osiris.visit.visit_responsible_unit_desc),
-                    visit_type                = COALESCE(NULLIF(EXCLUDED.visit_type,''),     osiris.visit.visit_type),
-                    visit_status              = COALESCE(NULLIF(EXCLUDED.visit_status,''),   osiris.visit.visit_status),
-                    visit_reason              = COALESCE(NULLIF(EXCLUDED.visit_reason,''),   osiris.visit.visit_reason),
-                    visit_reason_create_date  = COALESCE(EXCLUDED.visit_reason_create_date,  osiris.visit.visit_reason_create_date),
-                    is_preadmission           = COALESCE(NULLIF(EXCLUDED.is_preadmission,''), osiris.visit.is_preadmission)
-                """,
+                visit_upsert_sql,
                 visit_buffer,
                 label="visits (batch)",
+                commit_conn=pg_conn,
+            )
+
+        if len(visit_preadmission_buffer) >= BATCH_SIZE:
+            _flush_values(
+                pg_cur,
+                preadmission_insert_sql,
+                visit_preadmission_buffer,
+                label="visit_preadmission (batch)",
                 commit_conn=pg_conn,
             )
 
     # flush final
     _flush_values(
         pg_cur,
-        """
-        INSERT INTO osiris.visit (
-            ipp_ocr,
-            visit_start_date, visit_start_time,
-            visit_end_date, visit_end_time,
-            visit_estimated_end_date, visit_estimated_end_time,
-            visit_functional_unit, visit_type, visit_status,
-            visit_reason, visit_reason_create_date,is_preadmission,
-            visit_episode_id, visit_code_unit, visit_responsible_unit_desc
-        ) VALUES %s
-        ON CONFLICT (ipp_ocr, visit_episode_id) DO UPDATE SET
-            visit_start_date          = COALESCE(EXCLUDED.visit_start_date,          osiris.visit.visit_start_date),
-            visit_start_time          = COALESCE(EXCLUDED.visit_start_time,          osiris.visit.visit_start_time),
-            visit_end_date            = COALESCE(EXCLUDED.visit_end_date,            osiris.visit.visit_end_date),
-            visit_end_time            = COALESCE(EXCLUDED.visit_end_time,            osiris.visit.visit_end_time),
-            visit_estimated_end_date  = COALESCE(EXCLUDED.visit_estimated_end_date,  osiris.visit.visit_estimated_end_date),
-            visit_estimated_end_time  = COALESCE(EXCLUDED.visit_estimated_end_time,  osiris.visit.visit_estimated_end_time),
-            visit_functional_unit     = COALESCE(NULLIF(EXCLUDED.visit_functional_unit,''), osiris.visit.visit_functional_unit),
-            visit_code_unit    = COALESCE(NULLIF(EXCLUDED.visit_code_unit,''), osiris.visit.visit_code_unit),
-            visit_responsible_unit_desc    = COALESCE(NULLIF(EXCLUDED.visit_responsible_unit_desc,''), osiris.visit.visit_responsible_unit_desc),
-            visit_type                = COALESCE(NULLIF(EXCLUDED.visit_type,''),     osiris.visit.visit_type),
-            visit_status              = COALESCE(NULLIF(EXCLUDED.visit_status,''),   osiris.visit.visit_status),
-            visit_reason              = COALESCE(NULLIF(EXCLUDED.visit_reason,''),   osiris.visit.visit_reason),
-            visit_reason_create_date  = COALESCE(EXCLUDED.visit_reason_create_date,  osiris.visit.visit_reason_create_date),
-            is_preadmission           = COALESCE(NULLIF(EXCLUDED.is_preadmission,''), osiris.visit.is_preadmission)
-        """,
+        visit_upsert_sql,
         visit_buffer,
         label="visits (final)",
         commit_conn=pg_conn,
+    )
+    _flush_values(
+        pg_cur,
+        preadmission_insert_sql,
+        visit_preadmission_buffer,
+        label="visit_preadmission (final)",
+        commit_conn=pg_conn,
+    )
+    logging.info(
+        "[ETL] Visits routing done: %s -> osiris.visit, %s -> osiris.visit_preadmission",
+        routed_to_visit,
+        routed_to_visit_preadmission,
     )
     # ---------------- DIAGNOSTICS (stream + batch + hash + UPSERT) ----------------
     #  plus de TRUNCATE ici
