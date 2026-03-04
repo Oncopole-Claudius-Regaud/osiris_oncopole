@@ -36,5 +36,5 @@ LEFT JOIN SQLUser.CT_CareProv AS doc
     ON adm.PAADM_AdmDocCodeDR = doc.CTPCP_RowID
 WHERE
     (pat.PAPMI_No IS NULL OR pat.PAPMI_No <> '0200500024')
-    AND UPPER(COALESCE(loc.CTLOC_Desc, '')) NOT LIKE '%INTERFACE%'
+    
 
