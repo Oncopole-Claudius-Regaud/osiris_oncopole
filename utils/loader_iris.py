@@ -451,10 +451,20 @@ def load_to_postgresql(**kwargs):
         skipped_visit_unknown_patient,
         deleted_visit_without_patient,
     )
+    # Relecture de la table patient pour filtrer strictement les FKs côté diagnostic
+    pg_cur.execute("SELECT ipp_ocr FROM osiris.patient")
+    diagnostic_patient_ipp_set = {
+        none_if_empty(row[0])
+        for row in pg_cur.fetchall()
+        if row and none_if_empty(row[0])
+    }
+
     # ---------------- DIAGNOSTICS (stream + batch + hash + UPSERT) ----------------
     #  plus de TRUNCATE ici
     diag_buffer: List[Tuple] = []
     seen_diag_hash_batch = set()  # suivi des hash dans le batch courant (skip des doublons)
+    skipped_diag_missing_ipp = 0
+    skipped_diag_unknown_patient = 0
     
     latest_diag_by_key = {}  # clé = (ipp_ocr, code_cim)
 
@@ -491,6 +501,10 @@ def load_to_postgresql(**kwargs):
             ),
         }
         if not row_dict["ipp_ocr"]:
+            skipped_diag_missing_ipp += 1
+            continue
+        if row_dict["ipp_ocr"] not in diagnostic_patient_ipp_set:
+            skipped_diag_unknown_patient += 1
             continue
 
         # HASH via utilitaire (on NE CHANGE PAS la fonction existante)
@@ -605,6 +619,13 @@ def load_to_postgresql(**kwargs):
         )
         # 🔸 On réinitialise le set pour le prochain batch
         seen_diag_hash_batch.clear()
+
+    logging.info(
+        "[ETL] Diagnostics prepared: %s kept, %s skipped (missing ipp), %s skipped (ipp absent from patient)",
+        len(diag_buffer),
+        skipped_diag_missing_ipp,
+        skipped_diag_unknown_patient,
+    )
 
     _flush_values(
         pg_cur,
