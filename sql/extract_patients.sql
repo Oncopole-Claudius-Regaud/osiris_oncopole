@@ -1,18 +1,24 @@
 SELECT
-  SQLUser.PA_PatMas.PAPMI_No              AS ipp_ocr,
-  SQLUser.PA_Person.PAPER_ResidentNumber  AS ipp_chu,
+  TRIM(pat.PAPMI_No)             AS ipp_ocr,
+  per.PAPER_ResidentNumber       AS ipp_chu,
   CASE
-    WHEN SQLUser.PA_PatMas.PAPMI_Sex_DR = 2 THEN 'Masculin'
-    WHEN SQLUser.PA_PatMas.PAPMI_Sex_DR = 3 THEN 'Féminin'
+    WHEN pat.PAPMI_Sex_DR = 2 THEN 'Masculin'
+    WHEN pat.PAPMI_Sex_DR = 3 THEN 'Féminin'
     ELSE 'Indéterminé'
-  END                                     AS gender,
-  SQLUser.PA_PatMas.PAPMI_Deceased_Date   AS date_of_death,
-  SQLUser.PA_PatMas.PAPMI_Name            AS nom,
-  SQLUser.PA_PatMas.PAPMI_Name2           AS prenom,
-  SQLUser.PA_Person.PAPER_Dob             AS date_of_birth,
-  SQLUser.PA_Person.PAPER_FreeText3       AS birth_city
-FROM
-  SQLUser.PA_PatMas,
-  SQLUser.PA_Person
-WHERE
-  SQLUser.PA_Person.PAPER_RowId = SQLUser.PA_PatMas.PAPMI_RowId1
+  END                            AS gender,
+  pat.PAPMI_Deceased_Date        AS date_of_death,
+  pat.PAPMI_Name                 AS nom,
+  pat.PAPMI_Name2                AS prenom,
+  per.PAPER_Dob                  AS date_of_birth,
+  per.PAPER_FreeText3            AS birth_city
+FROM SQLUser.PA_PatMas pat
+JOIN SQLUser.PA_Person per
+  ON per.PAPER_RowId = pat.PAPMI_RowId1
+WHERE TRIM(pat.PAPMI_No) IS NOT NULL
+  AND TRIM(pat.PAPMI_No) <> ''
+  AND TRIM(pat.PAPMI_No) NOT LIKE '0%'
+  AND EXISTS (
+    SELECT 1
+    FROM SQLUser.PA_ADM adm
+    WHERE adm.PAADM_PAPMI_DR = pat.PAPMI_RowID
+  )
