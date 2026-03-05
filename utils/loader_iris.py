@@ -214,7 +214,7 @@ def _flush_values(cur, sql_stmt: str, buffer: List[Tuple], label: str = "", comm
     execute_values(cur, sql_stmt, safe_buffer)
     if commit_conn:
         commit_conn.commit()
-    if label:
+    if label and "(batch)" not in label:
         if coerced:
             logging.info(f"[ETL] {label}: {len(safe_buffer)} lignes insérées, {coerced} champs date/code_cim forcés à NULL")
         else:
@@ -313,17 +313,11 @@ def load_to_postgresql(**kwargs):
         commit_conn=pg_conn,
     )
 
-    patient_ipp_set = set(seen_ipp)
-    logging.info("[ETL] Patient refs loaded for visits: %s ipp", len(patient_ipp_set))
-
     # ---------------- VISITS (stream + batch, upsert) ----------------
     visit_buffer: List[Tuple] = []
     seen_visit_keys = set()
     routed_to_visit = 0
     skipped_visit_missing_keys = 0
-    skipped_visit_unknown_patient = 0
-    patient_ipp_with_visit = set()
-    visit_ipp_without_patient = set()
 
     def _to_str_date(x):
         if x is None: return None
@@ -411,13 +405,7 @@ def load_to_postgresql(**kwargs):
 
         visit_row = _build_visit_tuple(v, ipp, ep, is_pre_str)
 
-        if ipp not in patient_ipp_set:
-            skipped_visit_unknown_patient += 1
-            visit_ipp_without_patient.add(ipp)
-            continue
-
         visit_buffer.append(visit_row)
-        patient_ipp_with_visit.add(ipp)
         routed_to_visit += 1
 
         if len(visit_buffer) >= BATCH_SIZE:
@@ -437,29 +425,11 @@ def load_to_postgresql(**kwargs):
         label="visits (final)",
         commit_conn=pg_conn,
     )
-    patient_without_visit = sorted(patient_ipp_set - patient_ipp_with_visit)
     logging.info(
-        "[ETL] Visits done: %s inserted in osiris.visit, %s skipped (IPP absent from patient), %s skipped (missing ipp/episode)",
+        "[ETL] Visits done: %s inserted in osiris.visit, %s skipped (missing ipp/episode)",
         routed_to_visit,
-        skipped_visit_unknown_patient,
         skipped_visit_missing_keys,
     )
-    if visit_ipp_without_patient:
-        logging.info(
-            "[ETL] %s distinct ipp_ocr present in visits but absent from patient in this run",
-            len(visit_ipp_without_patient),
-        )
-        for ipp in sorted(visit_ipp_without_patient):
-            logging.info("[ETL][VISIT_WITHOUT_PATIENT] ipp_ocr=%s", ipp)
-    if patient_without_visit:
-        logging.info(
-            "[ETL] %s ipp_ocr present in patient but absent from visit in this run",
-            len(patient_without_visit),
-        )
-        for ipp in patient_without_visit:
-            logging.info("[ETL][PATIENT_WITHOUT_VISIT] ipp_ocr=%s", ipp)
-    else:
-        logging.info("[ETL] All extracted patients have at least one visit in this run")
     # ---------------- DIAGNOSTICS (stream + batch + hash + UPSERT) ----------------
     #  plus de TRUNCATE ici
     diag_buffer: List[Tuple] = []
