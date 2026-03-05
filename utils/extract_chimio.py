@@ -1,7 +1,7 @@
 import pandas as pd
 import logging
 # Les imports suivants sont supposés exister dans votre environnement
-from osiris_oncopole.utils.db import get_postgres_hook, oracle_radio
+from osiris_oncopole.utils.db import get_postgres_hook, connect_to_chimio
 from osiris_oncopole.utils.sql_loader import load_sql
 from osiris_oncopole.utils.transform_chimio import clean_dataframe 
 
@@ -13,7 +13,7 @@ def extract_data_from_oracle(query_input):
     """
     Exécute une requête SQL sur Oracle et retourne un DataFrame.
     """
-    conn = oracle_radio()
+    conn = connect_to_chimio()
     cursor = conn.cursor()
 
     if query_input.strip().lower().endswith(".sql"):

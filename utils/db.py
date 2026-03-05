@@ -64,6 +64,28 @@ def connect_to_oracle_ref(conn_id: str = "qblocp"):
     return connection
 
 
+def connect_to_chimio(conn_id: str = "CHIMIO_DATA"):
+    """
+    Connexion Oracle pour l'extraction chimiothérapie
+    (Airflow connection : CHIMIO_DATA).
+    """
+    conn = BaseHook.get_connection(conn_id)
+    lib_dir = conn.extra_dejson.get("lib_dir", "/opt/oracle/instantclient_23_7")
+
+    try:
+        cx_Oracle.init_oracle_client(lib_dir=lib_dir)
+    except cx_Oracle.ProgrammingError:
+        # Si déjà initialisé
+        pass
+
+    return cx_Oracle.connect(
+        conn.login,
+        conn.password,
+        conn.host,
+        encoding="UTF-8"
+    )
+
+
 def connect_to_qprod(conn_id: str = "QPROD"):
     """
     Connexion Oracle pour QPROD (Airflow connection : QPROD).
