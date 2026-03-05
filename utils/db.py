@@ -72,7 +72,7 @@ def connect_to_chimio(conn_id: str = "CHIMIO_DATA"):
     conn = BaseHook.get_connection(conn_id)
     lib_dir = conn.extra_dejson.get("lib_dir", "/opt/oracle/instantclient_23_7")
     extra = conn.extra_dejson or {}
-    service_name = extra.get("service_name")
+    service_name = extra.get("service_name") or extra.get("service")
     sid = extra.get("sid")
     dsn_extra = extra.get("dsn")
     hosts = [h.strip() for h in (conn.host or "").split(",") if h.strip()]
@@ -84,38 +84,52 @@ def connect_to_chimio(conn_id: str = "CHIMIO_DATA"):
         # Si déjà initialisé
         pass
 
+    # Avec une connexion Airflow "Generic", le champ schema est souvent utilisé.
+    if not service_name and conn.schema:
+        service_name = conn.schema
+    if not sid and conn.schema:
+        sid = conn.schema
+
+    dsn_candidates = []
     if dsn_extra:
-        dsn = dsn_extra
-    elif hosts and service_name:
+        dsn_candidates.append(dsn_extra)
+    if conn.host and ("/" in conn.host or "=" in conn.host):
+        dsn_candidates.append(conn.host)
+    if hosts and service_name:
         if len(hosts) > 1:
             address_list = "".join(
                 [f"(ADDRESS=(PROTOCOL=TCP)(HOST={h})(PORT={port}))" for h in hosts]
             )
-            dsn = (
+            dsn_candidates.append(
                 f"(DESCRIPTION=(LOAD_BALANCE=YES)(FAILOVER=YES){address_list}"
                 f"(CONNECT_DATA=(SERVICE_NAME={service_name})))"
             )
         else:
-            dsn = f"//{hosts[0]}:{port}/{service_name}"
-    elif hosts and sid:
-        # Fallback SID si le service_name n'est pas renseigné.
-        dsn = cx_Oracle.makedsn(hosts[0], port, sid=sid)
-    elif conn.host and ("/" in conn.host or "=" in conn.host):
-        # Host déjà fourni comme DSN complet.
-        dsn = conn.host
-    else:
+            dsn_candidates.append(f"//{hosts[0]}:{port}/{service_name}")
+    if hosts and sid and len(hosts) == 1:
+        dsn_candidates.append(cx_Oracle.makedsn(hosts[0], port, sid=sid))
+
+    if not dsn_candidates:
         raise ValueError(
             "Connexion CHIMIO_DATA invalide: renseigner extra.service_name "
             "(ou extra.sid / extra.dsn)."
         )
 
-    logging.info("Tentative de connexion Oracle CHIMIO_DATA via DSN : %s", dsn)
-    return cx_Oracle.connect(
-        user=conn.login,
-        password=conn.password,
-        dsn=dsn,
-        encoding="UTF-8",
-    )
+    last_error = None
+    for dsn in dsn_candidates:
+        try:
+            logging.info("Tentative de connexion Oracle CHIMIO_DATA via DSN : %s", dsn)
+            return cx_Oracle.connect(
+                user=conn.login,
+                password=conn.password,
+                dsn=dsn,
+                encoding="UTF-8",
+            )
+        except cx_Oracle.DatabaseError as e:
+            last_error = e
+            logging.warning("Echec connexion CHIMIO_DATA via DSN %s: %s", dsn, e)
+
+    raise last_error
 
 
 def connect_to_qprod(conn_id: str = "QPROD"):
