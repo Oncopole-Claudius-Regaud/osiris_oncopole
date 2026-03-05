@@ -161,7 +161,7 @@ def _flush_values(cur, sql_stmt: str, buffer: List[Tuple], label: str = "", comm
       et si code_cim ressemble à une date -> NULL.
     """
     if not buffer:
-        return
+        return 0, 0
 
     safe_buffer = buffer
     coerced = 0
@@ -214,12 +214,9 @@ def _flush_values(cur, sql_stmt: str, buffer: List[Tuple], label: str = "", comm
     execute_values(cur, sql_stmt, safe_buffer)
     if commit_conn:
         commit_conn.commit()
-    if label and "(batch)" not in label:
-        if coerced:
-            logging.info(f"[ETL] {label}: {len(safe_buffer)} lignes insérées, {coerced} champs date/code_cim forcés à NULL")
-        else:
-            logging.info(f"[ETL] {label}: {len(safe_buffer)} lignes insérées")
+    flushed_count = len(safe_buffer)
     buffer.clear()
+    return flushed_count, coerced
 
 
 # --------------------------------------------------------------------
@@ -247,6 +244,7 @@ def load_to_postgresql(**kwargs):
     # ---------------- PATIENTS (stream + batch) ----------------
     patient_buffer: List[Tuple] = []
     seen_ipp = set()
+    patient_total_upserted = 0
 
     # même ordre que la table cible :
     # (ipp_ocr, ipp_chu, gender, date_of_death, nom, prenom, date_of_birth, birth_city)
@@ -268,7 +266,7 @@ def load_to_postgresql(**kwargs):
         ))
 
         if len(patient_buffer) >= BATCH_SIZE:
-            _flush_values(
+            flushed_count, _ = _flush_values(
                 pg_cur,
                 """
                 INSERT INTO osiris.patient (
@@ -289,9 +287,10 @@ def load_to_postgresql(**kwargs):
                 label="patients (batch)",
                 commit_conn=pg_conn,
             )
+            patient_total_upserted += flushed_count
 
     # flush final
-    _flush_values(
+    flushed_count, _ = _flush_values(
         pg_cur,
         """
         INSERT INTO osiris.patient (
@@ -312,13 +311,15 @@ def load_to_postgresql(**kwargs):
         label="patients (final)",
         commit_conn=pg_conn,
     )
+    patient_total_upserted += flushed_count
+    logging.info("[ETL] Patients done: %s upserted in osiris.patient", patient_total_upserted)
 
     patient_ipp_set = set(seen_ipp)
 
     # ---------------- VISITS (stream + batch, upsert) ----------------
     visit_buffer: List[Tuple] = []
     seen_visit_keys = set()
-    routed_to_visit = 0
+    visit_total_upserted = 0
     skipped_visit_missing_keys = 0
     skipped_visit_unknown_patient = 0
 
@@ -413,25 +414,26 @@ def load_to_postgresql(**kwargs):
             continue
 
         visit_buffer.append(visit_row)
-        routed_to_visit += 1
 
         if len(visit_buffer) >= BATCH_SIZE:
-            _flush_values(
+            flushed_count, _ = _flush_values(
                 pg_cur,
                 visit_upsert_sql,
                 visit_buffer,
                 label="visits (batch)",
                 commit_conn=pg_conn,
             )
+            visit_total_upserted += flushed_count
 
     # flush final
-    _flush_values(
+    flushed_count, _ = _flush_values(
         pg_cur,
         visit_upsert_sql,
         visit_buffer,
         label="visits (final)",
         commit_conn=pg_conn,
     )
+    visit_total_upserted += flushed_count
     pg_cur.execute(
         """
         DELETE FROM osiris.visit v
@@ -445,8 +447,8 @@ def load_to_postgresql(**kwargs):
     deleted_visit_without_patient = pg_cur.rowcount
     pg_conn.commit()
     logging.info(
-        "[ETL] Visits done: %s inserted in osiris.visit, %s skipped (missing ipp/episode), %s skipped (ipp absent from patient), %s deleted by post-check",
-        routed_to_visit,
+        "[ETL] Visits done: %s upserted in osiris.visit, %s skipped (missing ipp/episode), %s skipped (ipp absent from patient), %s deleted by post-check",
+        visit_total_upserted,
         skipped_visit_missing_keys,
         skipped_visit_unknown_patient,
         deleted_visit_without_patient,
@@ -465,6 +467,8 @@ def load_to_postgresql(**kwargs):
     seen_diag_hash_batch = set()  # suivi des hash dans le batch courant (skip des doublons)
     skipped_diag_missing_ipp = 0
     skipped_diag_unknown_patient = 0
+    diag_total_upserted = 0
+    diag_total_coerced = 0
     
     latest_diag_by_key = {}  # clé = (ipp_ocr, code_cim)
 
@@ -570,7 +574,7 @@ def load_to_postgresql(**kwargs):
     diag_buffer = [entry["row"] for entry in latest_diag_by_key.values()]
 
     if len(diag_buffer) >= BATCH_SIZE:
-        _flush_values(
+        flushed_count, coerced_count = _flush_values(
             pg_cur,
             """
             INSERT INTO osiris.diagnostic (
@@ -617,17 +621,13 @@ def load_to_postgresql(**kwargs):
             label="diagnostics (batch)",
             commit_conn=pg_conn,
         )
+        diag_total_upserted += flushed_count
+        diag_total_coerced += coerced_count
         # 🔸 On réinitialise le set pour le prochain batch
         seen_diag_hash_batch.clear()
 
-    logging.info(
-        "[ETL] Diagnostics prepared: %s kept, %s skipped (missing ipp), %s skipped (ipp absent from patient)",
-        len(diag_buffer),
-        skipped_diag_missing_ipp,
-        skipped_diag_unknown_patient,
-    )
 
-    _flush_values(
+    flushed_count, coerced_count = _flush_values(
         pg_cur,
         """
         INSERT INTO osiris.diagnostic (
@@ -674,6 +674,15 @@ def load_to_postgresql(**kwargs):
         label="diagnostic (final)",
         commit_conn=pg_conn,
     )
+    diag_total_upserted += flushed_count
+    diag_total_coerced += coerced_count
+    logging.info(
+        "[ETL] Diagnostics done: %s upserted in osiris.diagnostic, %s skipped (missing ipp), %s skipped (ipp absent from patient), %s champs date/code_cim coerces a NULL",
+        diag_total_upserted,
+        skipped_diag_missing_ipp,
+        skipped_diag_unknown_patient,
+        diag_total_coerced,
+    )
     # 🔸 clear par cohérence (pas indispensable ici)
     seen_diag_hash_batch.clear()
 
@@ -681,6 +690,7 @@ def load_to_postgresql(**kwargs):
     # ---------------- TRAITEMENTS (stream + batch, upsert + treatment_hash) ----------------
     trt_buffer: List[Tuple] = []
     seen_trt_hashes_batch = set()  # dédoublonnage dans le batch courant uniquement
+    trt_total_upserted = 0
 
     def _to_iso_str(x):
         if x is None:
@@ -737,7 +747,7 @@ def load_to_postgresql(**kwargs):
         ))
 
         if len(trt_buffer) >= BATCH_SIZE:
-            _flush_values(
+            flushed_count, _ = _flush_values(
                 pg_cur,
                 """
                 INSERT INTO osiris.treatments_tracker (
@@ -758,10 +768,11 @@ def load_to_postgresql(**kwargs):
                 label="traitements (batch)",
                 commit_conn=pg_conn,
             )
+            trt_total_upserted += flushed_count
             seen_trt_hashes_batch.clear()  # reset pour le batch suivant
 
     # Flush final
-    _flush_values(
+    flushed_count, _ = _flush_values(
         pg_cur,
         """
         INSERT INTO osiris.treatments_tracker (
@@ -782,15 +793,17 @@ def load_to_postgresql(**kwargs):
         label="traitements (final)",
         commit_conn=pg_conn,
     )
+    trt_total_upserted += flushed_count
+    logging.info("[ETL] Treatments done: %s upserted in osiris.treatments_tracker", trt_total_upserted)
     seen_trt_hashes_batch.clear()
 
 # ---------------- RDV ----------------
 
     rdv_buffer: List[Tuple] = []
     seen_rdv = set()
+    rdv_total_upserted = 0
 
-    logging.info("Début du chargement des rendez-vous (stream + batch)")
-
+    logging.info("Debut du chargement des rendez-vous (stream + batch)")
     # même ordre que la table cible :
     # (ipp_ocr, date_rdv, libelle_examen, date_booked)
     for r in _stream_rows("rdv"):
@@ -818,7 +831,7 @@ def load_to_postgresql(**kwargs):
 
         # flush intermédiaire
         if len(rdv_buffer) >= BATCH_SIZE:
-            _flush_values(
+            flushed_count, _ = _flush_values(
                 pg_cur,
                 """
                 INSERT INTO osiris.rdv (
@@ -835,12 +848,13 @@ def load_to_postgresql(**kwargs):
                 label="rdv (batch)",
                 commit_conn=pg_conn,
             )
+            rdv_total_upserted += flushed_count
             rdv_buffer.clear()
             gc.collect()
 
     # flush final
     if rdv_buffer:
-        _flush_values(
+        flushed_count, _ = _flush_values(
             pg_cur,
             """
             INSERT INTO osiris.rdv (
@@ -857,8 +871,13 @@ def load_to_postgresql(**kwargs):
             label="rdv (final)",
             commit_conn=pg_conn,
         )
+        rdv_total_upserted += flushed_count
 
-    logging.info("Fin du chargement des rendez-vous – %d lignes traitées", len(seen_rdv))
+    logging.info(
+        "[ETL] RDV done: %s upserted in osiris.rdv (%s lignes uniques traitees)",
+        rdv_total_upserted,
+        len(seen_rdv),
+    )
 
 
     
