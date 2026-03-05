@@ -313,11 +313,14 @@ def load_to_postgresql(**kwargs):
         commit_conn=pg_conn,
     )
 
+    patient_ipp_set = set(seen_ipp)
+
     # ---------------- VISITS (stream + batch, upsert) ----------------
     visit_buffer: List[Tuple] = []
     seen_visit_keys = set()
     routed_to_visit = 0
     skipped_visit_missing_keys = 0
+    skipped_visit_unknown_patient = 0
 
     def _to_str_date(x):
         if x is None: return None
@@ -405,6 +408,10 @@ def load_to_postgresql(**kwargs):
 
         visit_row = _build_visit_tuple(v, ipp, ep, is_pre_str)
 
+        if ipp not in patient_ipp_set:
+            skipped_visit_unknown_patient += 1
+            continue
+
         visit_buffer.append(visit_row)
         routed_to_visit += 1
 
@@ -425,10 +432,24 @@ def load_to_postgresql(**kwargs):
         label="visits (final)",
         commit_conn=pg_conn,
     )
+    pg_cur.execute(
+        """
+        DELETE FROM osiris.visit v
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM osiris.patient p
+            WHERE p.ipp_ocr = v.ipp_ocr
+        );
+        """
+    )
+    deleted_visit_without_patient = pg_cur.rowcount
+    pg_conn.commit()
     logging.info(
-        "[ETL] Visits done: %s inserted in osiris.visit, %s skipped (missing ipp/episode)",
+        "[ETL] Visits done: %s inserted in osiris.visit, %s skipped (missing ipp/episode), %s skipped (ipp absent from patient), %s deleted by post-check",
         routed_to_visit,
         skipped_visit_missing_keys,
+        skipped_visit_unknown_patient,
+        deleted_visit_without_patient,
     )
     # ---------------- DIAGNOSTICS (stream + batch + hash + UPSERT) ----------------
     #  plus de TRUNCATE ici

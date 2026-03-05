@@ -7,6 +7,27 @@ import pandas as pd
 
 BATCH_SIZE = 5000
 
+
+def _to_pg_value(value):
+    """Normalise une valeur pandas vers un type insérable en PostgreSQL."""
+    if value is None:
+        return None
+    # Capture NaN/NaT pandas et numpy
+    if pd.isna(value):
+        return None
+    # Cas rare où NaT a déjà été converti en chaîne
+    if isinstance(value, str) and value.strip().lower() == "nat":
+        return None
+    # Timestamp pandas -> datetime Python natif
+    if isinstance(value, pd.Timestamp):
+        return value.to_pydatetime()
+    return value
+
+
+def _normalize_row_for_pg(row_tuple):
+    return tuple(_to_pg_value(v) for v in row_tuple)
+
+
 def _is_valid_num_doss(val):
     """
     Vérifie si le NUM_DOSS est valide : non nul, non vide, et différent de -1.
@@ -65,7 +86,7 @@ def load_chimio_plan_data(df_plan, truncate_table: bool = True):
 
     inserted_count = 0
     for row in df_insert.itertuples(index=False, name=None):
-        buffer.append(row)
+        buffer.append(_normalize_row_for_pg(row))
         inserted_count += 1
         if len(buffer) >= BATCH_SIZE:
             flush()
@@ -124,7 +145,7 @@ def load_chimio_data(df_chimio, truncate_table: bool = True):
 
     inserted_count = 0
     for row in df_insert.itertuples(index=False, name=None):
-        buffer.append(row)
+        buffer.append(_normalize_row_for_pg(row))
         inserted_count += 1
         if len(buffer) >= BATCH_SIZE:
             flush()
