@@ -22,7 +22,7 @@ def _is_valid_num_doss(val):
     return True
 
 
-def load_chimio_plan_data(df_plan):
+def load_chimio_plan_data(df_plan, truncate_table: bool = True):
     """
     Charge les données de planification dans la table cible osiris.chimio_plan.
     """
@@ -31,6 +31,11 @@ def load_chimio_plan_data(df_plan):
     pg_conn = pg_hook.get_conn()
     pg_cur = pg_conn.cursor()
 
+    if truncate_table:
+        logging.info("Vidage de la table osiris.chimio_plan")
+        pg_cur.execute("TRUNCATE TABLE osiris.chimio_plan;")
+        pg_conn.commit()
+
     df = df_plan
     df.columns = [c.upper() for c in df.columns]
     df = df.where(pd.notnull(df), None)
@@ -38,11 +43,9 @@ def load_chimio_plan_data(df_plan):
     df = df[df["NUM_DOSS"].apply(_is_valid_num_doss)]
     if df.empty:
         logging.info("Aucune donnée valide pour osiris.chimio_plan.")
+        pg_cur.close()
+        pg_conn.close()
         return
-
-    logging.info("Vidage de la table osiris.chimio_plan")
-    pg_cur.execute("TRUNCATE TABLE osiris.chimio_plan;")
-    pg_conn.commit()
 
     target_cols = ["NUM_DOSS", "DAT_OUV", "CODE_LOC"]
     df_insert = df[target_cols] 
@@ -51,7 +54,6 @@ def load_chimio_plan_data(df_plan):
 
     def flush():
         if not buffer: return
-        logging.info(f"Insert batch de {len(buffer)} lignes en chimio_plan…")
         execute_values(
             pg_cur,
             f"""INSERT INTO osiris.chimio_plan ({", ".join(target_cols)}) VALUES %s""",
@@ -61,19 +63,20 @@ def load_chimio_plan_data(df_plan):
         pg_conn.commit()
         buffer.clear()
 
-    for _, row in df_insert.iterrows():
-        tup = tuple(row)
-        buffer.append(tup)
+    inserted_count = 0
+    for row in df_insert.itertuples(index=False, name=None):
+        buffer.append(row)
+        inserted_count += 1
         if len(buffer) >= BATCH_SIZE:
             flush()
 
     flush()
     pg_cur.close()
     pg_conn.close()
-    logging.info("Chargement chimio_plan terminé ✔️")
+    logging.info("Chargement chimio_plan terminé ✔️ (%s lignes)", inserted_count)
 
 
-def load_chimio_data(df_chimio):
+def load_chimio_data(df_chimio, truncate_table: bool = True):
     """
     Charge les données de chimiothérapie dans la table cible osiris.chimiotherapie.
     """
@@ -82,6 +85,11 @@ def load_chimio_data(df_chimio):
     pg_conn = pg_hook.get_conn()
     pg_cur = pg_conn.cursor()
 
+    if truncate_table:
+        logging.info("Vidage de la table osiris.chimiotherapie")
+        pg_cur.execute("TRUNCATE TABLE osiris.chimiotherapie;")
+        pg_conn.commit()
+
     df = df_chimio
     df.columns = [c.upper() for c in df.columns]
     df = df.where(pd.notnull(df), None)
@@ -89,11 +97,9 @@ def load_chimio_data(df_chimio):
     df = df[df["NUM_DOSS"].apply(_is_valid_num_doss)]
     if df.empty:
         logging.info("Aucune donnée valide pour chimiothérapie.")
+        pg_cur.close()
+        pg_conn.close()
         return
-
-    logging.info("Vidage de la table osiris.chimiotherapie")
-    pg_cur.execute("TRUNCATE TABLE osiris.chimiotherapie;")
-    pg_conn.commit()
 
     target_cols = [
         "NUM_DOSS", "JOUR", "DAT_ADMINI", "COD_CATEG_PROTO", "COD_TYP_PROTO",
@@ -107,7 +113,6 @@ def load_chimio_data(df_chimio):
 
     def flush():
         if not buffer: return
-        logging.info(f"Insert batch de {len(buffer)} lignes en chimiothérapie…")
         execute_values(
             pg_cur,
             f"""INSERT INTO osiris.chimiotherapie ({", ".join(target_cols)}) VALUES %s""",
@@ -117,13 +122,14 @@ def load_chimio_data(df_chimio):
         pg_conn.commit()
         buffer.clear()
 
-    for _, row in df_insert.iterrows():
-        tup = tuple(row)
-        buffer.append(tup)
+    inserted_count = 0
+    for row in df_insert.itertuples(index=False, name=None):
+        buffer.append(row)
+        inserted_count += 1
         if len(buffer) >= BATCH_SIZE:
             flush()
 
     flush()
     pg_cur.close()
     pg_conn.close()
-    logging.info("Chargement chimiothérapie terminé ✔️")
+    logging.info("Chargement chimiothérapie terminé ✔️ (%s lignes)", inserted_count)
