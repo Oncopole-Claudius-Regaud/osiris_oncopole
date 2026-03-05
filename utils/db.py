@@ -71,6 +71,12 @@ def connect_to_chimio(conn_id: str = "CHIMIO_DATA"):
     """
     conn = BaseHook.get_connection(conn_id)
     lib_dir = conn.extra_dejson.get("lib_dir", "/opt/oracle/instantclient_23_7")
+    extra = conn.extra_dejson or {}
+    service_name = extra.get("service_name")
+    sid = extra.get("sid")
+    dsn_extra = extra.get("dsn")
+    hosts = [h.strip() for h in (conn.host or "").split(",") if h.strip()]
+    port = conn.port or 1521
 
     try:
         cx_Oracle.init_oracle_client(lib_dir=lib_dir)
@@ -78,11 +84,37 @@ def connect_to_chimio(conn_id: str = "CHIMIO_DATA"):
         # Si déjà initialisé
         pass
 
+    if dsn_extra:
+        dsn = dsn_extra
+    elif hosts and service_name:
+        if len(hosts) > 1:
+            address_list = "".join(
+                [f"(ADDRESS=(PROTOCOL=TCP)(HOST={h})(PORT={port}))" for h in hosts]
+            )
+            dsn = (
+                f"(DESCRIPTION=(LOAD_BALANCE=YES)(FAILOVER=YES){address_list}"
+                f"(CONNECT_DATA=(SERVICE_NAME={service_name})))"
+            )
+        else:
+            dsn = f"//{hosts[0]}:{port}/{service_name}"
+    elif hosts and sid:
+        # Fallback SID si le service_name n'est pas renseigné.
+        dsn = cx_Oracle.makedsn(hosts[0], port, sid=sid)
+    elif conn.host and ("/" in conn.host or "=" in conn.host):
+        # Host déjà fourni comme DSN complet.
+        dsn = conn.host
+    else:
+        raise ValueError(
+            "Connexion CHIMIO_DATA invalide: renseigner extra.service_name "
+            "(ou extra.sid / extra.dsn)."
+        )
+
+    logging.info("Tentative de connexion Oracle CHIMIO_DATA via DSN : %s", dsn)
     return cx_Oracle.connect(
-        conn.login,
-        conn.password,
-        conn.host,
-        encoding="UTF-8"
+        user=conn.login,
+        password=conn.password,
+        dsn=dsn,
+        encoding="UTF-8",
     )
 
 
