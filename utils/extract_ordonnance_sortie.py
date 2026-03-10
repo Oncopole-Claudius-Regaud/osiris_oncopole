@@ -22,6 +22,7 @@ EXPECTED_COLUMNS = [
     "posologie",
     "vmp",
     "duree",
+    "fac_code",
 ]
 
 
@@ -57,7 +58,8 @@ def _flush_buffer(pg_cur, buffer):
             libelle_produit,
             posologie,
             vmp,
-            duree
+            duree,
+            fac_code
         ) VALUES %s
         """,
         buffer,
@@ -106,6 +108,7 @@ def extract_and_load_ordonnance_sortie():
                     _clean_text(row.posologie),
                     _clean_text(row.vmp),
                     _clean_text(row.duree),
+                    _clean_text(row.fac_code),
                 )
             )
             if len(buffer) >= BATCH_SIZE:
