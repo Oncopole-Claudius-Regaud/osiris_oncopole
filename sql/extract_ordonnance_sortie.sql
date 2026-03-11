@@ -5,6 +5,7 @@ SELECT
     LIBELLE_PRODUIT AS libelle_produit,
     POSOLOGIE AS posologie,
     VMP AS vmp,
-    DUREE AS duree
+    DUREE AS duree,
+    FAC_CODE AS fac_code
 FROM c3_xxxicr.ord_presc_med_v
 WHERE IPP IS NOT NULL
