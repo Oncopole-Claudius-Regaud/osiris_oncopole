@@ -5,6 +5,9 @@ from datetime import datetime
 import logging
 import pandas as pd
 import os
+import re
+import shutil
+import socket
 
 # Import des fonctions
 from osiris_oncopole.utils.extract_chimio import extract_query_to_jsonl
@@ -44,6 +47,43 @@ def _iter_jsonl_chunks(path: str, chunksize: int):
     except ValueError:
         return iter(())
 
+
+def _safe_run_token(**kwargs) -> str:
+    dag_run = kwargs.get("dag_run")
+    raw_token = None
+
+    if dag_run is not None and getattr(dag_run, "run_id", None):
+        raw_token = dag_run.run_id
+    elif kwargs.get("run_id"):
+        raw_token = kwargs["run_id"]
+    elif kwargs.get("ts_nodash"):
+        raw_token = kwargs["ts_nodash"]
+    else:
+        raw_token = datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", raw_token)
+
+
+def _get_run_base_path(**kwargs) -> str:
+    return os.path.join(BASE_PATH, _safe_run_token(**kwargs))
+
+
+def _get_worker_host() -> str:
+    return socket.gethostname()
+
+
+def _assert_local_artifact_visibility(producer_host: str, artifact_path: str, producer_task: str):
+    current_host = _get_worker_host()
+    is_tmp_artifact = os.path.abspath(artifact_path).startswith(os.path.abspath(BASE_PATH))
+
+    if producer_host and is_tmp_artifact and producer_host != current_host:
+        raise ValueError(
+            "Artefact intermediaire local non partage entre taches Airflow: "
+            f"{producer_task} a ecrit {artifact_path!r} sur host={producer_host}, "
+            f"mais la tache courante tourne sur host={current_host}. "
+            "Utiliser un stockage partage ou une execution sur le meme worker."
+        )
+
 def extract_and_persist_data(**kwargs):
     """
     Tâche 1/3 : Extrait les données CHIMIO et les persiste sur disque au format JSONL.
@@ -51,19 +91,27 @@ def extract_and_persist_data(**kwargs):
     """
     logging.info("[ETL Chimio] 1 - Démarrage de l'Extraction et de la Persistance...")
     
-    # Création du répertoire cible
-    os.makedirs(BASE_PATH, exist_ok=True)
+    # Création d'un répertoire dédié au run pour éviter toute réutilisation de fichiers obsolètes.
+    run_base_path = _get_run_base_path(**kwargs)
+    shutil.rmtree(run_base_path, ignore_errors=True)
+    os.makedirs(run_base_path, exist_ok=True)
+    worker_host = _get_worker_host()
+    logging.info("[ETL Chimio] 1 - Répertoire d'exécution: %s (host=%s)", run_base_path, worker_host)
     
     # 1. Extraction Oracle -> JSONL (streaming)
-    chimio_raw_path = os.path.join(BASE_PATH, 'chimio_raw.jsonl')
+    chimio_raw_path = os.path.join(run_base_path, 'chimio_raw.jsonl')
     chimio_rows = extract_query_to_jsonl("extract_chimio.sql", chimio_raw_path, chunk_size=CHUNK_SIZE)
     
     # Pousser le chemin vers XCom
     kwargs['ti'].xcom_push(key='chimio_raw_path', value=chimio_raw_path)
+    kwargs['ti'].xcom_push(key='run_base_path', value=run_base_path)
+    kwargs['ti'].xcom_push(key='extract_worker_host', value=worker_host)
+    kwargs['ti'].xcom_push(key='chimio_rows_extracted', value=chimio_rows)
 
     logging.info(
-        "[ETL Chimio] 1 - Extraction et persistance terminées. CHIMIO=%s",
+        "[ETL Chimio] 1 - Extraction et persistance terminées. CHIMIO=%s path=%s",
         chimio_rows,
+        chimio_raw_path,
     )
 
 
@@ -76,13 +124,18 @@ def transform_data(**kwargs):
     
     # 1. Récupérer le chemin du fichier CHIMIO RAW
     chimio_raw_path = ti.xcom_pull(task_ids='extract_and_persist', key='chimio_raw_path')
+    extract_worker_host = ti.xcom_pull(task_ids='extract_and_persist', key='extract_worker_host')
     if not chimio_raw_path:
         raise ValueError("Impossible de récupérer le chemin du fichier CHIMIO brut.")
-        
+    _assert_local_artifact_visibility(extract_worker_host, chimio_raw_path, "extract_and_persist")
+         
     # 2. Transformation en chunks pour limiter la mémoire
-    chimio_clean_path = os.path.join(BASE_PATH, 'chimio_clean.jsonl')
+    run_base_path = ti.xcom_pull(task_ids='extract_and_persist', key='run_base_path') or os.path.dirname(chimio_raw_path)
+    chimio_clean_path = os.path.join(run_base_path, 'chimio_clean.jsonl')
     if os.path.exists(chimio_clean_path):
         os.remove(chimio_clean_path)
+    worker_host = _get_worker_host()
+    logging.info("[ETL Chimio] 2 - Lecture=%s Ecriture=%s (host=%s)", chimio_raw_path, chimio_clean_path, worker_host)
 
     total_in = 0
     total_out = 0
@@ -108,10 +161,14 @@ def transform_data(**kwargs):
     
     # Pousser le chemin du fichier nettoyé vers XCom
     ti.xcom_push(key='chimio_clean_path', value=chimio_clean_path)
+    ti.xcom_push(key='transform_worker_host', value=worker_host)
+    ti.xcom_push(key='chimio_rows_transformed_in', value=total_in)
+    ti.xcom_push(key='chimio_rows_transformed_out', value=total_out)
     logging.info(
-        "[ETL Chimio] 2 - Transformation terminée et persistée. in=%s out=%s",
+        "[ETL Chimio] 2 - Transformation terminée et persistée. in=%s out=%s path=%s",
         total_in,
         total_out,
+        chimio_clean_path,
     )
 
 
@@ -124,9 +181,14 @@ def load_data(**kwargs):
     
     # 1. Récupérer le chemin
     chimio_clean_path = ti.xcom_pull(task_ids='transform_data', key='chimio_clean_path')
+    transform_worker_host = ti.xcom_pull(task_ids='transform_data', key='transform_worker_host')
+    transformed_rows = ti.xcom_pull(task_ids='transform_data', key='chimio_rows_transformed_out')
     
     if not chimio_clean_path:
         raise ValueError("Chemin du fichier CHIMIO de chargement manquant.")
+    _assert_local_artifact_visibility(transform_worker_host, chimio_clean_path, "transform_data")
+    worker_host = _get_worker_host()
+    logging.info("[ETL Chimio] 3 - Chargement depuis %s (host=%s)", chimio_clean_path, worker_host)
 
     # 2. Chargement chunké de la table d'administration (osiris.chimiotherapie)
     first_chimio_chunk = True
@@ -148,8 +210,9 @@ def load_data(**kwargs):
         ]), truncate_table=True)
     
     logging.info(
-        "[ETL Chimio] 3 - Chargement terminé avec succès. CHIMIO=%s",
+        "[ETL Chimio] 3 - Chargement terminé avec succès. CHIMIO=%s transformed_out=%s",
         total_chimio,
+        transformed_rows,
     )
 
 
