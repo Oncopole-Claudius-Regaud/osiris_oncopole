@@ -42,61 +42,6 @@ def _is_valid_num_doss(val):
 
     return True
 
-
-def load_chimio_plan_data(df_plan, truncate_table: bool = True):
-    """
-    Charge les données de planification dans la table cible osiris.chimio_plan.
-    """
-    conn_id = Variable.get("target_pg_conn_id", default_var="postgres_test")
-    pg_hook = PostgresHook(postgres_conn_id=conn_id)
-    pg_conn = pg_hook.get_conn()
-    pg_cur = pg_conn.cursor()
-
-    if truncate_table:
-        logging.info("Vidage de la table osiris.chimio_plan")
-        pg_cur.execute("TRUNCATE TABLE osiris.chimio_plan;")
-        pg_conn.commit()
-
-    df = df_plan
-    df.columns = [c.upper() for c in df.columns]
-    df = df.where(pd.notnull(df), None)
-
-    df = df[df["NUM_DOSS"].apply(_is_valid_num_doss)]
-    if df.empty:
-        logging.info("Aucune donnée valide pour osiris.chimio_plan.")
-        pg_cur.close()
-        pg_conn.close()
-        return
-
-    target_cols = ["NUM_DOSS", "DAT_OUV", "CODE_LOC"]
-    df_insert = df[target_cols] 
-
-    buffer = []
-
-    def flush():
-        if not buffer: return
-        execute_values(
-            pg_cur,
-            f"""INSERT INTO osiris.chimio_plan ({", ".join(target_cols)}) VALUES %s""",
-            buffer,
-            page_size=1000
-        )
-        pg_conn.commit()
-        buffer.clear()
-
-    inserted_count = 0
-    for row in df_insert.itertuples(index=False, name=None):
-        buffer.append(_normalize_row_for_pg(row))
-        inserted_count += 1
-        if len(buffer) >= BATCH_SIZE:
-            flush()
-
-    flush()
-    pg_cur.close()
-    pg_conn.close()
-    logging.info("Chargement chimio_plan terminé ✔️ (%s lignes)", inserted_count)
-
-
 def load_chimio_data(df_chimio, truncate_table: bool = True):
     """
     Charge les données de chimiothérapie dans la table cible osiris.chimiotherapie.

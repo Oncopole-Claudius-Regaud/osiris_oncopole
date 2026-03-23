@@ -9,7 +9,7 @@ import os
 # Import des fonctions
 from osiris_oncopole.utils.extract_chimio import extract_query_to_jsonl
 from osiris_oncopole.utils.transform_chimio import transform_all
-from osiris_oncopole.utils.loader_chimio import load_chimio_data, load_chimio_plan_data 
+from osiris_oncopole.utils.loader_chimio import load_chimio_data
 
 # Configuration de base du DAG
 default_args = {
@@ -46,8 +46,8 @@ def _iter_jsonl_chunks(path: str, chunksize: int):
 
 def extract_and_persist_data(**kwargs):
     """
-    Tâche 1/3 : Extrait les données et les persiste sur disque au format JSONL.
-    Pousse les chemins des fichiers via XCom.
+    Tâche 1/3 : Extrait les données CHIMIO et les persiste sur disque au format JSONL.
+    Pousse le chemin du fichier via XCom.
     """
     logging.info("[ETL Chimio] 1 - Démarrage de l'Extraction et de la Persistance...")
     
@@ -56,18 +56,14 @@ def extract_and_persist_data(**kwargs):
     
     # 1. Extraction Oracle -> JSONL (streaming)
     chimio_raw_path = os.path.join(BASE_PATH, 'chimio_raw.jsonl')
-    plan_raw_path = os.path.join(BASE_PATH, 'plan_raw.jsonl')
     chimio_rows = extract_query_to_jsonl("extract_chimio.sql", chimio_raw_path, chunk_size=CHUNK_SIZE)
-    plan_rows = extract_query_to_jsonl("extract_chimio_plan.sql", plan_raw_path, chunk_size=CHUNK_SIZE)
     
-    # Pousser les chemins vers XCom
+    # Pousser le chemin vers XCom
     kwargs['ti'].xcom_push(key='chimio_raw_path', value=chimio_raw_path)
-    kwargs['ti'].xcom_push(key='plan_raw_path', value=plan_raw_path)
 
     logging.info(
-        "[ETL Chimio] 1 - Extraction et persistance terminées. CHIMIO=%s, PLAN=%s",
+        "[ETL Chimio] 1 - Extraction et persistance terminées. CHIMIO=%s",
         chimio_rows,
-        plan_rows,
     )
 
 
@@ -121,34 +117,18 @@ def transform_data(**kwargs):
 
 def load_data(**kwargs):
     """
-    Tâche 3/3 : Récupère les chemins des DataFrames (Chimio CLEAN et Plan RAW) et les charge.
+    Tâche 3/3 : Récupère le chemin du DataFrame CHIMIO CLEAN et le charge.
     """
     logging.info("[ETL Chimio] 3 - Démarrage du Chargement dans PostgreSQL...")
     ti = kwargs['ti']
     
-    # 1. Récupérer les chemins
+    # 1. Récupérer le chemin
     chimio_clean_path = ti.xcom_pull(task_ids='transform_data', key='chimio_clean_path')
-    plan_raw_path = ti.xcom_pull(task_ids='extract_and_persist', key='plan_raw_path')
     
-    if not chimio_clean_path or not plan_raw_path:
-        raise ValueError("Chemins des fichiers de chargement manquants.")
-        
-    # 2. Chargement chunké de la table de planification (osiris.chimio_plan)
-    first_plan_chunk = True
-    total_plan = 0
-    for df_plan_raw in _iter_jsonl_chunks(plan_raw_path, CHUNK_SIZE):
-        if df_plan_raw is None:
-            continue
-        if 'dat_ouv' in df_plan_raw.columns:
-            df_plan_raw['dat_ouv'] = pd.to_datetime(df_plan_raw['dat_ouv'], errors='coerce')
-        total_plan += len(df_plan_raw)
-        load_chimio_plan_data(df_plan_raw, truncate_table=first_plan_chunk)
-        first_plan_chunk = False
+    if not chimio_clean_path:
+        raise ValueError("Chemin du fichier CHIMIO de chargement manquant.")
 
-    if first_plan_chunk:
-        load_chimio_plan_data(pd.DataFrame(columns=['num_doss', 'dat_ouv', 'code_loc']), truncate_table=True)
-
-    # 3. Chargement chunké de la table d'administration (osiris.chimiotherapie)
+    # 2. Chargement chunké de la table d'administration (osiris.chimiotherapie)
     first_chimio_chunk = True
     total_chimio = 0
     for df_chimio_clean in _iter_jsonl_chunks(chimio_clean_path, CHUNK_SIZE):
@@ -168,9 +148,8 @@ def load_data(**kwargs):
         ]), truncate_table=True)
     
     logging.info(
-        "[ETL Chimio] 3 - Chargement des deux tables terminé avec succès. CHIMIO=%s PLAN=%s",
+        "[ETL Chimio] 3 - Chargement terminé avec succès. CHIMIO=%s",
         total_chimio,
-        total_plan,
     )
 
 
