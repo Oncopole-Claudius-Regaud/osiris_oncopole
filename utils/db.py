@@ -6,6 +6,16 @@ from airflow.models import Variable
 import logging
 
 
+DEFAULT_ORACLE_SERVICE_NAMES = {
+    "dpip": "DPIP.icr.local",
+}
+
+
+def _append_unique(values, value):
+    if value and value not in values:
+        values.append(value)
+
+
 def connect_to_iris():
     """Connexion à IRIS via ODBC (Airflow connection : iris_odbc)."""
     conn = BaseHook.get_connection("iris_odbc")
@@ -72,6 +82,7 @@ def connect_to_chimio(conn_id: str = "dpip"):
     conn = BaseHook.get_connection(conn_id)
     lib_dir = conn.extra_dejson.get("lib_dir", "/opt/oracle/instantclient_23_7")
     extra = conn.extra_dejson or {}
+    default_service_name = DEFAULT_ORACLE_SERVICE_NAMES.get((conn_id or "").lower())
     service_name = extra.get("service_name") or extra.get("service")
     sid = extra.get("sid")
     dsn_extra = extra.get("dsn")
@@ -89,30 +100,38 @@ def connect_to_chimio(conn_id: str = "dpip"):
         service_name = conn.schema
     if not sid and conn.schema:
         sid = conn.schema
+    if not service_name and default_service_name:
+        service_name = default_service_name
+        logging.info(
+            "Connexion CHIMIO_DATA: service_name absent, fallback vers %s pour conn_id=%s",
+            service_name,
+            conn_id,
+        )
 
     dsn_candidates = []
-    if dsn_extra:
-        dsn_candidates.append(dsn_extra)
+    _append_unique(dsn_candidates, dsn_extra)
     if conn.host and ("/" in conn.host or "=" in conn.host):
-        dsn_candidates.append(conn.host)
+        _append_unique(dsn_candidates, conn.host)
     if hosts and service_name:
         if len(hosts) > 1:
             address_list = "".join(
                 [f"(ADDRESS=(PROTOCOL=TCP)(HOST={h})(PORT={port}))" for h in hosts]
             )
-            dsn_candidates.append(
+            _append_unique(
+                dsn_candidates,
                 f"(DESCRIPTION=(LOAD_BALANCE=YES)(FAILOVER=YES){address_list}"
                 f"(CONNECT_DATA=(SERVICE_NAME={service_name})))"
             )
         else:
-            dsn_candidates.append(f"//{hosts[0]}:{port}/{service_name}")
+            _append_unique(dsn_candidates, f"//{hosts[0]}:{port}/{service_name}")
     if hosts and sid and len(hosts) == 1:
-        dsn_candidates.append(cx_Oracle.makedsn(hosts[0], port, sid=sid))
+        _append_unique(dsn_candidates, cx_Oracle.makedsn(hosts[0], port, sid=sid))
 
     if not dsn_candidates:
         raise ValueError(
             "Connexion CHIMIO_DATA invalide: renseigner extra.service_name "
-            "(ou extra.sid / extra.dsn)."
+            "(ou extra.sid / extra.dsn). "
+            f"host={conn.host!r}, schema={conn.schema!r}, extra_keys={sorted(extra.keys())}"
         )
 
     last_error = None
@@ -201,7 +220,7 @@ def oracle_radio(conn_id: str = "dpip"):
 
     hosts = [h.strip() for h in conn.host.split(",") if h.strip()]
     port = conn.port or 1521
-    service_name = "DPIP.icr.local"
+    service_name = DEFAULT_ORACLE_SERVICE_NAMES.get((conn_id or "").lower(), "DPIP.icr.local")
 
     if not hosts or not service_name:
         raise ValueError(f"⚠️ Connexion Oracle invalide : host={hosts}, service_name={service_name}")
@@ -224,5 +243,4 @@ def oracle_radio(conn_id: str = "dpip"):
 
     logging.info("✅ Connexion Oracle établie avec succès.")
     return connection
-
 
