@@ -64,10 +64,10 @@ def connect_to_oracle_ref(conn_id: str = "qblocp"):
     return connection
 
 
-def connect_to_chimio(conn_id: str = "CHIMIO_DATA"):
+def connect_to_chimio(conn_id: str = "dpip"):
     """
     Connexion Oracle pour l'extraction chimiothérapie
-    (Airflow connection : CHIMIO_DATA).
+    (Airflow connection : dpip chimio_prescription).
     """
     conn = BaseHook.get_connection(conn_id)
     lib_dir = conn.extra_dejson.get("lib_dir", "/opt/oracle/instantclient_23_7")
