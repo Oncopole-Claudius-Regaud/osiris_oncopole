@@ -1,6 +1,7 @@
 
 from psycopg2.extras import execute_values
 import logging
+import math
 from airflow.models import Variable
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 import pandas as pd
@@ -28,14 +29,33 @@ def _normalize_row_for_pg(row_tuple):
     return tuple(_to_pg_value(v) for v in row_tuple)
 
 
+def _normalize_num_doss(val):
+    if val is None or pd.isna(val):
+        return None
+
+    if isinstance(val, float):
+        if math.isnan(val):
+            return None
+        if val.is_integer():
+            return str(int(val))
+
+    s = str(val).strip()
+    if s.lower() in ("", "nan", "none", "null"):
+        return None
+
+    if s.endswith(".0") and s[:-2].lstrip("-").isdigit():
+        return s[:-2]
+
+    return s
+
+
 def _is_valid_num_doss(val):
     """
     Vérifie si le NUM_DOSS est valide : non nul, non vide, et différent de -1.
     """
-    if val is None or pd.isna(val):
+    s = _normalize_num_doss(val)
+    if s is None:
         return False
-
-    s = str(val).strip()
 
     if s == "" or s == "-1" or s.lower() in ("nan", "none", "null"):
         return False
@@ -59,6 +79,8 @@ def load_chimio_data(df_chimio, truncate_table: bool = True):
     df = df_chimio
     df.columns = [c.upper() for c in df.columns]
     df = df.where(pd.notnull(df), None)
+    if "NUM_DOSS" in df.columns:
+        df["NUM_DOSS"] = df["NUM_DOSS"].apply(_normalize_num_doss)
 
     df = df[df["NUM_DOSS"].apply(_is_valid_num_doss)]
     if df.empty:

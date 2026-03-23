@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import socket
+import math
 
 # Import des fonctions
 from osiris_oncopole.utils.extract_chimio import extract_query_to_jsonl
@@ -57,13 +58,40 @@ def _get_debug_num_doss() -> str | None:
     return debug_num_doss or None
 
 
+def _normalize_num_doss_value(value):
+    if value is None or pd.isna(value):
+        return None
+
+    if isinstance(value, float):
+        if math.isnan(value):
+            return None
+        if value.is_integer():
+            return str(int(value))
+
+    text = str(value).strip()
+    if text.lower() in ("", "none", "null", "nan"):
+        return None
+
+    if re.fullmatch(r"-?\d+\.0+", text):
+        return text.split(".", 1)[0]
+
+    return text
+
+
+def _normalize_num_doss_column(df: pd.DataFrame):
+    if df is not None and "num_doss" in df.columns:
+        df["num_doss"] = df["num_doss"].apply(_normalize_num_doss_value)
+
+
 def _filter_debug_df(df: pd.DataFrame | None, debug_num_doss: str | None) -> pd.DataFrame | None:
     if df is None or df.empty or not debug_num_doss:
         return None
     if "num_doss" not in df.columns:
         return None
 
-    filtered = df[df["num_doss"].astype("string").str.strip() == debug_num_doss].copy()
+    normalized_debug_num_doss = _normalize_num_doss_value(debug_num_doss)
+    normalized_num_doss = df["num_doss"].apply(_normalize_num_doss_value)
+    filtered = df[normalized_num_doss == normalized_debug_num_doss].copy()
     if filtered.empty:
         return None
     return filtered
@@ -253,11 +281,13 @@ def transform_data(**kwargs):
     for treatment_df in _iter_jsonl_chunks(chimio_raw_path, CHUNK_SIZE):
         if treatment_df is None or treatment_df.empty:
             continue
+        _normalize_num_doss_column(treatment_df)
         total_in += len(treatment_df)
         debug_input_frame = _filter_debug_df(treatment_df, debug_num_doss)
         if debug_input_frame is not None:
             debug_input_frames.append(debug_input_frame)
         treatment_clean = transform_all(treatment_df)
+        _normalize_num_doss_column(treatment_clean)
         total_out += len(treatment_clean)
         debug_output_frame = _filter_debug_df(treatment_clean, debug_num_doss)
         if debug_output_frame is not None:
@@ -315,6 +345,7 @@ def load_data(**kwargs):
     for df_chimio_clean in _iter_jsonl_chunks(chimio_clean_path, CHUNK_SIZE):
         if df_chimio_clean is None:
             continue
+        _normalize_num_doss_column(df_chimio_clean)
         if 'dat_admini' in df_chimio_clean.columns:
             df_chimio_clean['dat_admini'] = pd.to_datetime(df_chimio_clean['dat_admini'], errors='coerce')
         total_chimio += len(df_chimio_clean)
