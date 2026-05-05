@@ -6,6 +6,7 @@ sys.path.append(os.path.dirname(__file__))
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.stats import Stats
 
 from osiris_oncopole.utils.db import connect_to_iris
@@ -80,7 +81,7 @@ with DAG(
     default_args=default_args,
     start_date=datetime(2025, 4, 3),
     catchup=False,
-    schedule=None,
+    schedule_interval="0 6 11 * *",
     tags=["lymphome-data", "osiris", "PROD"],
 ) as dag:
 
@@ -95,5 +96,15 @@ with DAG(
         python_callable=load_to_postgresql,
     )
 
-    extract_task >> load_task
+    trigger_extract_qbloc_task = TriggerDagRunOperator(
+        task_id='trigger_extract_qbloc',
+        trigger_dag_id='extract_qbloc',
+    )
+
+    trigger_etl_chimio_task = TriggerDagRunOperator(
+        task_id='trigger_etl_chimio_data',
+        trigger_dag_id='etl_chimio_data',
+    )
+
+    extract_task >> load_task >> [trigger_extract_qbloc_task, trigger_etl_chimio_task]
 
