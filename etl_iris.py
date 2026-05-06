@@ -106,5 +106,20 @@ with DAG(
         trigger_dag_id='etl_chimio_data',
     )
 
-    extract_task >> load_task >> [trigger_extract_qbloc_task, trigger_etl_chimio_task]
+    trigger_extract_radioth_task = TriggerDagRunOperator(
+        task_id='trigger_extract_radioth_aria',
+        trigger_dag_id='extract_radioth_aria',
+    )
+
+    trigger_extract_ordonnance_sortie_task = TriggerDagRunOperator(
+        task_id='trigger_extract_ordonnance_sortie',
+        trigger_dag_id='extract_ordonnance_sortie',
+    )
+
+    extract_task >> load_task >> [
+        trigger_extract_qbloc_task,
+        trigger_etl_chimio_task,
+        trigger_extract_radioth_task,
+        trigger_extract_ordonnance_sortie_task,
+    ]
 
