@@ -78,7 +78,6 @@ def extract_data_from_iris_osiris(**kwargs):
 with DAG(
     dag_id='etl_iris_data',
     default_args=default_args,
-    start_date=datetime(2025, 4, 3),
     catchup=False,
     tags=["lymphome-data", "osiris", "PROD"],
 ) as dag:
