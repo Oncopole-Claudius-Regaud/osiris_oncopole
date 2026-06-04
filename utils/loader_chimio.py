@@ -92,7 +92,9 @@ def load_chimio_data(df_chimio, truncate_table: bool = True):
     target_cols = [
         "NUM_DOSS", "JOUR", "DAT_ADMINI", "COD_CATEG_PROTO", "COD_TYP_PROTO",
         "NUM_PDT", "NOM_PDT", "COD_VOIE", "UF_REAL", "LIB_UF_REAL",
-        "DOSE_TOT", "NOM_PROTO", "NOM_MODA", "CE_ETAT_CHIMIO"
+        "DOSE_TOT", "NOM_PROTO", "NOM_MODA", "CE_ETAT_CHIMIO",
+        "CODE_UCD", "CODE_DCI", "LIB_DCI", "LIB_UCD", "CP_CODE_VOIE_ADM",
+        "CP_LIB_MED_PRESC", "CP_CODE_DCI"
     ]
 
     df_insert = df[target_cols] 

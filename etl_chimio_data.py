@@ -129,7 +129,7 @@ def _log_debug_dataframe(stage: str, debug_num_doss: str | None, frames: list[pd
     if sort_columns:
         debug_df = debug_df.sort_values(by=sort_columns, na_position="first")
 
-    display_columns = [col for col in ["num_doss", "jour", "dat_admini", "nom_proto", "num_pdt", "ce_etat_chimio"] if col in debug_df.columns]
+    display_columns = [col for col in ["num_doss", "jour", "dat_admini", "nom_proto", "code_ucd", "code_dci", "lib_dci", "lib_ucd", "cp_code_voie_adm", "cp_lib_med_presc", "cp_code_dci", "num_pdt", "ce_etat_chimio"] if col in debug_df.columns]
     if not display_columns:
         display_columns = list(debug_df.columns)
 
@@ -161,7 +161,7 @@ def _log_debug_target_in_postgres(debug_num_doss: str | None):
 
     rows = pg_hook.get_records(
         """
-        SELECT num_doss, jour, dat_admini, nom_proto, num_pdt, ce_etat_chimio
+        SELECT num_doss, jour, dat_admini, nom_proto, code_ucd, code_dci, lib_dci, lib_ucd, cp_code_voie_adm, cp_lib_med_presc, cp_code_dci, num_pdt, ce_etat_chimio
         FROM osiris.chimiotherapie
         WHERE CAST(num_doss AS TEXT) = %s
         ORDER BY dat_admini NULLS FIRST, jour NULLS FIRST, nom_proto NULLS FIRST, num_pdt NULLS FIRST
@@ -359,7 +359,9 @@ def load_data(**kwargs):
         load_chimio_data(pd.DataFrame(columns=[
             'num_doss', 'jour', 'dat_admini', 'cod_categ_proto', 'cod_typ_proto',
             'num_pdt', 'nom_pdt', 'cod_voie', 'uf_real', 'lib_uf_real',
-            'dose_tot', 'nom_proto', 'nom_moda', 'ce_etat_chimio'
+            'dose_tot', 'nom_proto', 'nom_moda', 'ce_etat_chimio',
+            'code_ucd', 'code_dci', 'lib_dci', 'lib_ucd', 'cp_code_voie_adm',
+            'cp_lib_med_presc', 'cp_code_dci'
         ]), truncate_table=True)
     
     _log_debug_dataframe("load_input", debug_num_doss, debug_load_frames)

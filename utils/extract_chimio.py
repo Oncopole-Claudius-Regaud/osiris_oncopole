@@ -51,7 +51,7 @@ def _log_debug_num_doss_rows(stage: str, debug_num_doss: str | None, rows: list[
     if sort_columns:
         debug_df = debug_df.sort_values(by=sort_columns, na_position="first")
 
-    display_columns = [col for col in ["num_doss", "jour", "dat_admini", "nom_proto", "num_pdt", "ce_etat_chimio"] if col in debug_df.columns]
+    display_columns = [col for col in ["num_doss", "jour", "dat_admini", "nom_proto", "code_ucd", "code_dci", "lib_dci", "lib_ucd", "cp_code_voie_adm", "cp_lib_med_presc", "cp_code_dci", "num_pdt", "ce_etat_chimio"] if col in debug_df.columns]
     if not display_columns:
         display_columns = list(debug_df.columns)
 
