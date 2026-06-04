@@ -86,7 +86,6 @@ with DAG(
     extract_task = PythonOperator(
         task_id='extract_data_from_iris',
         python_callable=extract_data_from_iris_osiris,
-        execution_timeout=timedelta(hours=1),
     )
 
     load_task = PythonOperator(
