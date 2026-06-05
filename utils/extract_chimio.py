@@ -59,6 +59,144 @@ def _log_debug_num_doss_rows(stage: str, debug_num_doss: str | None, rows: list[
         logging.info("[Chimio][Debug %s] row=%s", stage, row)
 
 
+def _fetch_count(cursor, query: str, parameters: dict | None = None):
+    cursor.execute(query, parameters or {})
+    row = cursor.fetchone()
+    return row[0] if row else None
+
+
+def _log_zero_row_diagnostics(cursor, debug_num_doss: str | None):
+    logging.warning("[Chimio][Diag] Extraction vide: lancement des diagnostics Oracle")
+
+    diagnostics = [
+        (
+            "prescription_total",
+            "SELECT COUNT(*) FROM DMI_ICR.CHIMIO_PRESCRIPTION",
+            None,
+        ),
+        (
+            "prescription_administre_exact",
+            """
+            SELECT COUNT(*)
+            FROM DMI_ICR.CHIMIO_PRESCRIPTION
+            WHERE CP_LIB_ETAPE_PRESC = 'ADMINISTRE'
+            """,
+            None,
+        ),
+        (
+            "prescription_administre_normalise",
+            """
+            SELECT COUNT(*)
+            FROM DMI_ICR.CHIMIO_PRESCRIPTION
+            WHERE UPPER(TRIM(CP_LIB_ETAPE_PRESC)) = 'ADMINISTRE'
+            """,
+            None,
+        ),
+    ]
+
+    if debug_num_doss:
+        diagnostics.extend([
+            (
+                "debug_num_doss_total",
+                """
+                SELECT COUNT(*)
+                FROM DMI_ICR.CHIMIO_PRESCRIPTION
+                WHERE TRIM(CP_NUMDOSS) = :num_doss
+                """,
+                {"num_doss": debug_num_doss},
+            ),
+            (
+                "debug_num_doss_administre",
+                """
+                SELECT COUNT(*)
+                FROM DMI_ICR.CHIMIO_PRESCRIPTION
+                WHERE TRIM(CP_NUMDOSS) = :num_doss
+                  AND CP_LIB_ETAPE_PRESC = 'ADMINISTRE'
+                """,
+                {"num_doss": debug_num_doss},
+            ),
+            (
+                "debug_num_doss_join_inclusion",
+                """
+                SELECT COUNT(*)
+                FROM DMI_ICR.CHIMIO_PRESCRIPTION C
+                JOIN DMI_ICR.CHIMIO_INCLUSION_CE I
+                  ON TRIM(CAST(C.CP_NUM_INCLUSION_CE AS VARCHAR2(100))) =
+                     TRIM(CAST(I.CIE_KEY_INCLUS AS VARCHAR2(100)))
+                WHERE TRIM(C.CP_NUMDOSS) = :num_doss
+                  AND C.CP_LIB_ETAPE_PRESC = 'ADMINISTRE'
+                """,
+                {"num_doss": debug_num_doss},
+            ),
+            (
+                "debug_num_doss_join_proto",
+                """
+                SELECT COUNT(*)
+                FROM DMI_ICR.CHIMIO_PRESCRIPTION C
+                JOIN DMI_ICR.CHIMIO_INCLUSION_CE I
+                  ON TRIM(CAST(C.CP_NUM_INCLUSION_CE AS VARCHAR2(100))) =
+                     TRIM(CAST(I.CIE_KEY_INCLUS AS VARCHAR2(100)))
+                JOIN DMI_ICR.CHIMIO_PROTO P
+                  ON TRIM(CAST(I.CIE_CODE_PROTO AS VARCHAR2(100))) =
+                     TRIM(CAST(P.CP_CODE_PROTO AS VARCHAR2(100)))
+                WHERE TRIM(C.CP_NUMDOSS) = :num_doss
+                  AND C.CP_LIB_ETAPE_PRESC = 'ADMINISTRE'
+                """,
+                {"num_doss": debug_num_doss},
+            ),
+        ])
+
+    for label, query, parameters in diagnostics:
+        try:
+            logging.warning("[Chimio][Diag] %s=%s", label, _fetch_count(cursor, query, parameters))
+        except Exception as exc:
+            logging.warning("[Chimio][Diag] %s impossible: %s", label, exc)
+
+    try:
+        cursor.execute("""
+            SELECT CP_LIB_ETAPE_PRESC, COUNT(*) AS row_count
+            FROM DMI_ICR.CHIMIO_PRESCRIPTION
+            GROUP BY CP_LIB_ETAPE_PRESC
+            ORDER BY row_count DESC
+            FETCH FIRST 10 ROWS ONLY
+        """)
+        for row in cursor.fetchall():
+            logging.warning("[Chimio][Diag] etape=%r count=%s", row[0], row[1])
+    except Exception as exc:
+        logging.warning("[Chimio][Diag] distribution etapes impossible: %s", exc)
+
+    if not debug_num_doss:
+        return
+
+    try:
+        cursor.execute(
+            """
+            SELECT
+                C.CP_NUMDOSS,
+                C.CP_LIB_ETAPE_PRESC,
+                C.CP_NUM_INCLUSION_CE,
+                I.CIE_KEY_INCLUS,
+                I.CIE_CODE_PROTO,
+                P.CP_CODE_PROTO,
+                P.CP_NOM
+            FROM DMI_ICR.CHIMIO_PRESCRIPTION C
+            LEFT JOIN DMI_ICR.CHIMIO_INCLUSION_CE I
+              ON TRIM(CAST(C.CP_NUM_INCLUSION_CE AS VARCHAR2(100))) =
+                 TRIM(CAST(I.CIE_KEY_INCLUS AS VARCHAR2(100)))
+            LEFT JOIN DMI_ICR.CHIMIO_PROTO P
+              ON TRIM(CAST(I.CIE_CODE_PROTO AS VARCHAR2(100))) =
+                 TRIM(CAST(P.CP_CODE_PROTO AS VARCHAR2(100)))
+            WHERE TRIM(C.CP_NUMDOSS) = :num_doss
+            FETCH FIRST 12 ROWS ONLY
+            """,
+            {"num_doss": debug_num_doss},
+        )
+        for row in cursor.fetchall():
+            logging.warning("[Chimio][Diag] sample_debug_row=%s", row)
+    except Exception as exc:
+        logging.warning("[Chimio][Diag] sample num_doss impossible: %s", exc)
+
+
 def extract_data_from_oracle(query_input):
     """
     Execute une requete SQL sur Oracle et retourne un DataFrame.
@@ -126,6 +264,9 @@ def extract_query_to_jsonl(
                     wrote += 1
                     if _normalize_num_doss(obj.get("num_doss")) == normalized_debug_num_doss:
                         debug_rows.append(obj)
+
+        if wrote == 0:
+            _log_zero_row_diagnostics(cursor, normalized_debug_num_doss)
     finally:
         cursor.close()
         conn.close()

@@ -339,6 +339,15 @@ def load_data(**kwargs):
     logging.info("[ETL Chimio] 3 - Chargement depuis %s (host=%s)", chimio_clean_path, worker_host)
 
     # 2. Chargement chunké de la table d'administration (osiris.chimiotherapie)
+    if not transformed_rows:
+        logging.warning(
+            "[ETL Chimio] 3 - Chargement ignore: transformed_out=%s. "
+            "La table osiris.chimiotherapie n'est pas tronquee.",
+            transformed_rows,
+        )
+        _log_debug_target_in_postgres(debug_num_doss)
+        return
+
     first_chimio_chunk = True
     total_chimio = 0
     debug_load_frames = []
