@@ -92,7 +92,8 @@ def load_chimio_data(df_chimio, truncate_table: bool = True):
     target_cols = [
         "NUM_DOSS", "JOUR", "DAT_ADMINI", "COD_TYP_PROTO",
         "NUM_PDT", "NOM_PDT", "COD_VOIE", "UF_REAL", "LIB_UF_REAL",
-        "DOSE_TOT", "NOM_PROTO", "NOM_MODA",
+        "DOSE_TOT", "NOM_PROTO", "CP_CODE_PROTOCOLE", "CP_CODE_PROTO_ICR",
+        "CP_TYPE_PROTO", "NOM_MODA",
         "CODE_UCD", "CODE_DCI", "LIB_DCI", "LIB_UCD", "CP_CODE_VOIE_ADM",
         "CP_LIB_MED_PRESC", "CP_CODE_DCI", "NUM_CYCLE"
     ]
