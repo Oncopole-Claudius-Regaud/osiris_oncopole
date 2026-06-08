@@ -92,11 +92,39 @@ def load_chimio_data(df_chimio, truncate_table: bool = True):
     target_cols = [
         "NUM_DOSS", "JOUR", "DAT_ADMINI", "COD_TYP_PROTO",
         "NUM_PDT", "NOM_PDT", "COD_VOIE", "UF_REAL", "LIB_UF_REAL",
-        "DOSE_TOT", "NOM_MODA", "CE_ETAT_CHIMIO",
+        "DOSE_TOT", "NOM_PROTO", "NOM_MODA",
         "CODE_UCD", "CODE_DCI", "LIB_DCI", "LIB_UCD", "CP_CODE_VOIE_ADM",
         "CP_LIB_MED_PRESC", "CP_CODE_DCI", "NUM_CYCLE"
     ]
 
+    pg_cur.execute(
+        """
+        SELECT UPPER(column_name)
+        FROM information_schema.columns
+        WHERE table_schema = 'osiris'
+          AND table_name = 'chimiotherapie'
+        """
+    )
+    existing_target_cols = {row[0] for row in pg_cur.fetchall()}
+    missing_target_cols = [col for col in target_cols if col not in existing_target_cols]
+    if missing_target_cols:
+        pg_cur.close()
+        pg_conn.close()
+        raise ValueError(
+            "Colonnes absentes de osiris.chimiotherapie pour le chargement chimio: "
+            f"{missing_target_cols}"
+        )
+
+    missing_df_cols = [col for col in target_cols if col not in df.columns]
+    if missing_df_cols:
+        pg_cur.close()
+        pg_conn.close()
+        raise ValueError(
+            "Colonnes absentes du DataFrame chimio avant insertion: "
+            f"{missing_df_cols}"
+        )
+
+    logging.info("Colonnes cible chimiotherapie: %s", target_cols)
     df_insert = df[target_cols] 
 
     buffer = []
