@@ -47,11 +47,11 @@ def _log_debug_num_doss_rows(stage: str, debug_num_doss: str | None, rows: list[
         max_date,
     )
 
-    sort_columns = [col for col in ["dat_admini", "jour", "nom_proto", "num_pdt"] if col in debug_df.columns]
+    sort_columns = [col for col in ["dat_admini", "jour", "num_cycle", "num_pdt"] if col in debug_df.columns]
     if sort_columns:
         debug_df = debug_df.sort_values(by=sort_columns, na_position="first")
 
-    display_columns = [col for col in ["num_doss", "jour", "dat_admini", "nom_proto", "code_ucd", "code_dci", "lib_dci", "lib_ucd", "cp_code_voie_adm", "cp_lib_med_presc", "cp_code_dci", "num_pdt", "ce_etat_chimio"] if col in debug_df.columns]
+    display_columns = [col for col in ["num_doss", "jour", "dat_admini", "num_cycle", "code_ucd", "code_dci", "lib_dci", "lib_ucd", "cp_code_voie_adm", "cp_lib_med_presc", "cp_code_dci", "num_pdt", "ce_etat_chimio"] if col in debug_df.columns]
     if not display_columns:
         display_columns = list(debug_df.columns)
 
@@ -116,31 +116,12 @@ def _log_zero_row_diagnostics(cursor, debug_num_doss: str | None):
                 {"num_doss": debug_num_doss},
             ),
             (
-                "debug_num_doss_join_inclusion",
+                "debug_num_doss_administre_normalise",
                 """
                 SELECT COUNT(*)
                 FROM DMI_ICR.CHIMIO_PRESCRIPTION C
-                JOIN DMI_ICR.CHIMIO_INCLUSION_CE I
-                  ON TRIM(CAST(C.CP_NUM_INCLUSION_CE AS VARCHAR2(100))) =
-                     TRIM(CAST(I.CIE_KEY_INCLUS AS VARCHAR2(100)))
                 WHERE TRIM(C.CP_NUMDOSS) = :num_doss
-                  AND C.CP_LIB_ETAPE_PRESC = 'ADMINISTRE'
-                """,
-                {"num_doss": debug_num_doss},
-            ),
-            (
-                "debug_num_doss_join_proto",
-                """
-                SELECT COUNT(*)
-                FROM DMI_ICR.CHIMIO_PRESCRIPTION C
-                JOIN DMI_ICR.CHIMIO_INCLUSION_CE I
-                  ON TRIM(CAST(C.CP_NUM_INCLUSION_CE AS VARCHAR2(100))) =
-                     TRIM(CAST(I.CIE_KEY_INCLUS AS VARCHAR2(100)))
-                JOIN DMI_ICR.CHIMIO_PROTO P
-                  ON TRIM(CAST(I.CIE_CODE_PROTO AS VARCHAR2(100))) =
-                     TRIM(CAST(P.CP_CODE_PROTO AS VARCHAR2(100)))
-                WHERE TRIM(C.CP_NUMDOSS) = :num_doss
-                  AND C.CP_LIB_ETAPE_PRESC = 'ADMINISTRE'
+                  AND UPPER(TRIM(C.CP_LIB_ETAPE_PRESC)) = 'ADMINISTRE'
                 """,
                 {"num_doss": debug_num_doss},
             ),
@@ -174,18 +155,12 @@ def _log_zero_row_diagnostics(cursor, debug_num_doss: str | None):
             SELECT
                 C.CP_NUMDOSS,
                 C.CP_LIB_ETAPE_PRESC,
-                C.CP_NUM_INCLUSION_CE,
-                I.CIE_KEY_INCLUS,
-                I.CIE_CODE_PROTO,
-                P.CP_CODE_PROTO,
-                P.CP_NOM
+                C.CP_DATE_ADM,
+                C.CP_NUM_J,
+                C.CP_NUM_CURE,
+                C.CP_CODE_PDT,
+                C.CP_LIB_UCD
             FROM DMI_ICR.CHIMIO_PRESCRIPTION C
-            LEFT JOIN DMI_ICR.CHIMIO_INCLUSION_CE I
-              ON TRIM(CAST(C.CP_NUM_INCLUSION_CE AS VARCHAR2(100))) =
-                 TRIM(CAST(I.CIE_KEY_INCLUS AS VARCHAR2(100)))
-            LEFT JOIN DMI_ICR.CHIMIO_PROTO P
-              ON TRIM(CAST(I.CIE_CODE_PROTO AS VARCHAR2(100))) =
-                 TRIM(CAST(P.CP_CODE_PROTO AS VARCHAR2(100)))
             WHERE TRIM(C.CP_NUMDOSS) = :num_doss
             FETCH FIRST 12 ROWS ONLY
             """,
