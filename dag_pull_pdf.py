@@ -25,13 +25,18 @@ default_args = {
 
 
 def _select_password(prompt_context: str, lakehouse_password: str, livedata_password: str) -> str:
-    context = prompt_context.lower()
+    context = prompt_context.lower()[-1000:]
 
-    if "administrateur" in context or "srvlakehouse" in context:
-        return lakehouse_password
+    password_markers = [context.rfind("password"), context.rfind("mot de passe")]
+    last_marker = max(password_markers)
+    if last_marker >= 0:
+        context = context[max(0, last_marker - 300):]
 
     if "adminis" in context or "srvis-tc-livedata" in context or "livedata" in context:
         return livedata_password
+
+    if "administrateur" in context or "srvlakehouse" in context or "sudo" in context:
+        return lakehouse_password
 
     raise RuntimeError(
         "Prompt de mot de passe non reconnu. "
@@ -53,7 +58,15 @@ def run_pull_pdf_on_lakehouse() -> None:
     args = [
         "-tt",
         "-o",
-        "StrictHostKeyChecking=accept-new",
+        "BatchMode=no",
+        "-o",
+        "PreferredAuthentications=password",
+        "-o",
+        "PubkeyAuthentication=no",
+        "-o",
+        "NumberOfPasswordPrompts=10",
+        "-o",
+        "StrictHostKeyChecking=no",
         f"{REMOTE_USER}@{REMOTE_HOST}",
         "sudo",
         "bash",
@@ -76,6 +89,7 @@ def run_pull_pdf_on_lakehouse() -> None:
     host_key_prompt = re.compile(r"are you sure you want to continue connecting", re.IGNORECASE)
     output_buffer = ""
     prompt_context = ""
+    recent_output = ""
     last_output_at = time.monotonic()
 
     def send_line(value: str) -> None:
@@ -107,6 +121,7 @@ def run_pull_pdf_on_lakehouse() -> None:
             text = chunk.decode("utf-8", errors="replace")
             output_buffer += text
             prompt_context = (prompt_context + text)[-4000:]
+            recent_output = (recent_output + text)[-4000:]
 
             while "\n" in output_buffer:
                 line, output_buffer = output_buffer.split("\n", 1)
@@ -119,7 +134,14 @@ def run_pull_pdf_on_lakehouse() -> None:
                 continue
 
             if password_prompt.search(prompt_context):
-                send_line(_select_password(prompt_context, lakehouse_password, livedata_password))
+                selected_password = _select_password(prompt_context, lakehouse_password, livedata_password)
+                password_source = (
+                    LIVEDATA_PASSWORD_VARIABLE
+                    if selected_password == livedata_password
+                    else LAKEHOUSE_PASSWORD_VARIABLE
+                )
+                logger.info("Prompt mot de passe detecte, reponse avec la variable Airflow %s.", password_source)
+                send_line(selected_password)
                 prompt_context = ""
 
         remaining_output = output_buffer.strip()
@@ -131,7 +153,10 @@ def run_pull_pdf_on_lakehouse() -> None:
     return_code = process.wait()
 
     if return_code != 0:
-        raise RuntimeError(f"Echec du script distant {REMOTE_SCRIPT}, code retour {return_code}.")
+        raise RuntimeError(
+            f"Echec du script distant {REMOTE_SCRIPT}, code retour {return_code}. "
+            f"Derniere sortie recue: {recent_output.strip()[-1000:]}"
+        )
 
     logger.info("Script distant termine avec succes.")
 
