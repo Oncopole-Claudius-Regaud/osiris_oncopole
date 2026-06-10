@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 import subprocess
 from datetime import datetime, timedelta
@@ -79,7 +80,6 @@ def _format_debug_output(value: str, *secrets: str) -> str:
 
 def run_pull_pdf_on_lakehouse() -> None:
     import errno
-    import os
     import pty
     import select
     import time
@@ -101,21 +101,25 @@ def run_pull_pdf_on_lakehouse() -> None:
 
     args = [
         "-tt",
-        "-o",
-        "BatchMode=no",
-        "-o",
-        "PreferredAuthentications=password",
-        "-o",
-        "PubkeyAuthentication=no",
-        "-o",
-        "NumberOfPasswordPrompts=10",
-        "-o",
-        "StrictHostKeyChecking=no",
+        "-o", "BatchMode=no",
+        "-o", "PreferredAuthentications=password",
+        "-o", "PubkeyAuthentication=no",
+        "-o", "IdentitiesOnly=yes",       # N'utilise aucune clé d'identité
+        "-o", "IdentityAgent=none",       # Ignore complètement le SSH agent
+        "-o", "NumberOfPasswordPrompts=10",
+        "-o", "StrictHostKeyChecking=no",
         f"{REMOTE_USER}@{REMOTE_HOST}",
         remote_command,
     ]
 
     logger.info("Lancement distant : ssh -tt %s@%s sudo bash %s", REMOTE_USER, REMOTE_HOST, REMOTE_SCRIPT)
+
+    # Nettoyer les variables d'environnement liées au SSH agent
+    # pour éviter que l'agent propose des clés avant le mot de passe
+    # et provoque un "Too many authentication failures"
+    env = os.environ.copy()
+    env.pop("SSH_AUTH_SOCK", None)
+    env.pop("SSH_AGENT_PID", None)
 
     master_fd, slave_fd = pty.openpty()
     process = subprocess.Popen(
@@ -124,6 +128,7 @@ def run_pull_pdf_on_lakehouse() -> None:
         stdout=slave_fd,
         stderr=slave_fd,
         close_fds=True,
+        env=env,
     )
     os.close(slave_fd)
 
