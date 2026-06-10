@@ -5,7 +5,6 @@ apache-airflow==2.10.4
 cx_Oracle==8.3.0
 psycopg2-binary==2.9.10
 pandas==2.2.3
-pexpect==4.9.0
 
 # Dev/test tools
 pytest==8.2.1

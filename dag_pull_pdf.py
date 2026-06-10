@@ -1,4 +1,6 @@
 import logging
+import re
+import subprocess
 from datetime import datetime, timedelta
 
 from airflow import DAG
@@ -22,24 +24,6 @@ default_args = {
 }
 
 
-class _LogWriter:
-    def __init__(self, logger: logging.Logger) -> None:
-        self.logger = logger
-        self._buffer = ""
-
-    def write(self, data: str) -> None:
-        self._buffer += data
-        while "\n" in self._buffer:
-            line, self._buffer = self._buffer.split("\n", 1)
-            if line.strip():
-                self.logger.info(line.rstrip())
-
-    def flush(self) -> None:
-        if self._buffer.strip():
-            self.logger.info(self._buffer.rstrip())
-        self._buffer = ""
-
-
 def _select_password(prompt_context: str, lakehouse_password: str, livedata_password: str) -> str:
     context = prompt_context.lower()
 
@@ -56,13 +40,11 @@ def _select_password(prompt_context: str, lakehouse_password: str, livedata_pass
 
 
 def run_pull_pdf_on_lakehouse() -> None:
-    try:
-        import pexpect
-    except ImportError as exc:
-        raise RuntimeError(
-            "Le package pexpect est requis pour piloter les prompts SSH/sudo. "
-            "Ajoutez pexpect aux dependances Airflow."
-        ) from exc
+    import errno
+    import os
+    import pty
+    import select
+    import time
 
     logger = logging.getLogger(__name__)
     lakehouse_password = Variable.get(LAKEHOUSE_PASSWORD_VARIABLE)
@@ -80,50 +62,76 @@ def run_pull_pdf_on_lakehouse() -> None:
 
     logger.info("Lancement distant : ssh -tt %s@%s sudo bash %s", REMOTE_USER, REMOTE_HOST, REMOTE_SCRIPT)
 
-    child = pexpect.spawn(
-        "ssh",
-        args,
-        encoding="utf-8",
-        codec_errors="replace",
-        timeout=SSH_TIMEOUT_SECONDS,
+    master_fd, slave_fd = pty.openpty()
+    process = subprocess.Popen(
+        ["ssh", *args],
+        stdin=slave_fd,
+        stdout=slave_fd,
+        stderr=slave_fd,
+        close_fds=True,
     )
-    child.logfile_read = _LogWriter(logger)
+    os.close(slave_fd)
 
-    patterns = [
-        pexpect.EOF,
-        pexpect.TIMEOUT,
-        r"(?i)are you sure you want to continue connecting",
-        r"(?i)(?:password|mot de passe).*:",
-    ]
+    password_prompt = re.compile(r"(?:password|mot de passe).*:", re.IGNORECASE)
+    host_key_prompt = re.compile(r"are you sure you want to continue connecting", re.IGNORECASE)
+    output_buffer = ""
+    prompt_context = ""
+    last_output_at = time.monotonic()
+
+    def send_line(value: str) -> None:
+        os.write(master_fd, f"{value}\n".encode("utf-8"))
 
     try:
-        while True:
-            matched = child.expect(patterns)
+        while process.poll() is None:
+            ready, _, _ = select.select([master_fd], [], [], 1)
 
-            if matched == 0:
-                break
-
-            if matched == 1:
-                raise TimeoutError(
-                    f"Aucune sortie recue pendant {SSH_TIMEOUT_SECONDS}s pendant l'execution de {REMOTE_SCRIPT}."
-                )
-
-            if matched == 2:
-                child.sendline("yes")
+            if not ready:
+                if time.monotonic() - last_output_at > SSH_TIMEOUT_SECONDS:
+                    process.kill()
+                    raise TimeoutError(
+                        f"Aucune sortie recue pendant {SSH_TIMEOUT_SECONDS}s pendant l'execution de {REMOTE_SCRIPT}."
+                    )
                 continue
 
-            prompt_context = f"{child.before}{child.after}"
-            child.sendline(_select_password(prompt_context, lakehouse_password, livedata_password))
+            try:
+                chunk = os.read(master_fd, 4096)
+            except OSError as exc:
+                if exc.errno == errno.EIO:
+                    break
+                raise
+
+            if not chunk:
+                break
+
+            last_output_at = time.monotonic()
+            text = chunk.decode("utf-8", errors="replace")
+            output_buffer += text
+            prompt_context = (prompt_context + text)[-4000:]
+
+            while "\n" in output_buffer:
+                line, output_buffer = output_buffer.split("\n", 1)
+                if line.strip():
+                    logger.info(line.rstrip())
+
+            if host_key_prompt.search(prompt_context):
+                send_line("yes")
+                prompt_context = ""
+                continue
+
+            if password_prompt.search(prompt_context):
+                send_line(_select_password(prompt_context, lakehouse_password, livedata_password))
+                prompt_context = ""
+
+        remaining_output = output_buffer.strip()
+        if remaining_output:
+            logger.info(remaining_output)
     finally:
-        if child.logfile_read:
-            child.logfile_read.flush()
-        child.close()
+        os.close(master_fd)
 
-    if child.exitstatus != 0:
-        raise RuntimeError(f"Echec du script distant {REMOTE_SCRIPT}, code retour {child.exitstatus}.")
+    return_code = process.wait()
 
-    if child.signalstatus is not None:
-        raise RuntimeError(f"Le script distant {REMOTE_SCRIPT} a ete interrompu par le signal {child.signalstatus}.")
+    if return_code != 0:
+        raise RuntimeError(f"Echec du script distant {REMOTE_SCRIPT}, code retour {return_code}.")
 
     logger.info("Script distant termine avec succes.")
 
