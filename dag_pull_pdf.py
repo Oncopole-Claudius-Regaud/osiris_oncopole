@@ -30,6 +30,7 @@ def _select_password(
     lakehouse_password: str,
     livedata_password: str,
     script_started: bool,
+    password_prompt_count: int,
 ) -> tuple[str, str]:
     prompt_line = _extract_password_prompt(prompt_context).lower()
     context = prompt_line or prompt_context.lower()[-1000:]
@@ -48,6 +49,9 @@ def _select_password(
     if script_started:
         return livedata_password, LIVEDATA_PASSWORD_VARIABLE
 
+    if password_prompt_count <= 2:
+        return lakehouse_password, LAKEHOUSE_PASSWORD_VARIABLE
+
     return lakehouse_password, LAKEHOUSE_PASSWORD_VARIABLE
 
 
@@ -64,8 +68,8 @@ def run_pull_pdf_on_lakehouse() -> None:
     import time
 
     logger = logging.getLogger(__name__)
-    lakehouse_password = Variable.get(LAKEHOUSE_PASSWORD_VARIABLE)
-    livedata_password = Variable.get(LIVEDATA_PASSWORD_VARIABLE)
+    lakehouse_password = Variable.get(LAKEHOUSE_PASSWORD_VARIABLE).strip()
+    livedata_password = Variable.get(LIVEDATA_PASSWORD_VARIABLE).strip()
 
     args = [
         "-tt",
@@ -103,6 +107,7 @@ def run_pull_pdf_on_lakehouse() -> None:
     prompt_context = ""
     recent_output = ""
     script_started = False
+    password_prompt_count = 0
     last_output_at = time.monotonic()
 
     def send_line(value: str) -> None:
@@ -154,15 +159,18 @@ def run_pull_pdf_on_lakehouse() -> None:
                 continue
 
             if password_prompt.search(prompt_context):
+                password_prompt_count += 1
                 prompt_line = _extract_password_prompt(prompt_context)
                 selected_password, password_source = _select_password(
                     prompt_context,
                     lakehouse_password,
                     livedata_password,
                     script_started,
+                    password_prompt_count,
                 )
                 logger.info(
-                    "Prompt mot de passe detecte (%s), reponse avec la variable Airflow %s.",
+                    "Prompt mot de passe #%s detecte (%s), reponse avec la variable Airflow %s.",
+                    password_prompt_count,
                     prompt_line or "prompt non isole",
                     password_source,
                 )
