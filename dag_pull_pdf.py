@@ -56,6 +56,19 @@ def _extract_password_prompt(prompt_context: str) -> str:
     return matches[-1].strip() if matches else ""
 
 
+def _mask_sensitive(value: str, *secrets: str) -> str:
+    masked = value
+    for secret in secrets:
+        if secret:
+            masked = masked.replace(secret, "***")
+    return masked
+
+
+def _format_debug_output(value: str, *secrets: str) -> str:
+    visible = _mask_sensitive(value, *secrets)
+    return repr(visible[-1000:])
+
+
 def run_pull_pdf_on_lakehouse() -> None:
     import errno
     import os
@@ -136,10 +149,25 @@ def run_pull_pdf_on_lakehouse() -> None:
             prompt_context = (prompt_context + text)[-4000:]
             recent_output = (recent_output + text)[-4000:]
 
+            if (
+                password_prompt.search(text)
+                or "Permission denied" in text
+                or "disconnect" in text.lower()
+                or ("\n" not in text and text.strip())
+            ):
+                logger.info(
+                    "DEBUG sortie SSH brute masquee: %s",
+                    _format_debug_output(text, lakehouse_password, livedata_password),
+                )
+                logger.info(
+                    "DEBUG contexte prompt masque: %s",
+                    _format_debug_output(prompt_context, lakehouse_password, livedata_password),
+                )
+
             while "\n" in output_buffer:
                 line, output_buffer = output_buffer.split("\n", 1)
                 if line.strip():
-                    logger.info(line.rstrip())
+                    logger.info(_mask_sensitive(line.rstrip(), lakehouse_password, livedata_password))
 
             if host_key_prompt.search(prompt_context):
                 send_line("yes")
@@ -166,7 +194,7 @@ def run_pull_pdf_on_lakehouse() -> None:
 
         remaining_output = output_buffer.strip()
         if remaining_output:
-            logger.info(remaining_output)
+            logger.info(_mask_sensitive(remaining_output, lakehouse_password, livedata_password))
     finally:
         os.close(master_fd)
 
@@ -175,7 +203,7 @@ def run_pull_pdf_on_lakehouse() -> None:
     if return_code != 0:
         raise RuntimeError(
             f"Echec du script distant {REMOTE_SCRIPT}, code retour {return_code}. "
-            f"Derniere sortie recue: {recent_output.strip()[-1000:]}"
+            f"Derniere sortie recue: {_mask_sensitive(recent_output.strip()[-1000:], lakehouse_password, livedata_password)}"
         )
 
     logger.info("Script distant termine avec succes.")
