@@ -31,7 +31,8 @@ def _select_password(
     livedata_password: str,
     script_started: bool,
 ) -> tuple[str, str]:
-    context = prompt_context.lower()[-1000:]
+    prompt_line = _extract_password_prompt(prompt_context).lower()
+    context = prompt_line or prompt_context.lower()[-1000:]
 
     password_markers = [context.rfind("password"), context.rfind("mot de passe")]
     last_marker = max(password_markers)
@@ -41,13 +42,18 @@ def _select_password(
     if "adminis" in context or any(alias in context for alias in LIVEDATA_HOST_ALIASES):
         return livedata_password, LIVEDATA_PASSWORD_VARIABLE
 
-    if "administrateur" in context or "srvlakehouse" in context or "sudo" in context:
+    if "administrateur" in context or "srvlakehouse" in context:
         return lakehouse_password, LAKEHOUSE_PASSWORD_VARIABLE
 
     if script_started:
         return livedata_password, LIVEDATA_PASSWORD_VARIABLE
 
     return lakehouse_password, LAKEHOUSE_PASSWORD_VARIABLE
+
+
+def _extract_password_prompt(prompt_context: str) -> str:
+    matches = re.findall(r"[^\r\n]*(?:password|mot de passe)[^:\r\n]*:", prompt_context, re.IGNORECASE)
+    return matches[-1].strip() if matches else ""
 
 
 def run_pull_pdf_on_lakehouse() -> None:
@@ -148,13 +154,18 @@ def run_pull_pdf_on_lakehouse() -> None:
                 continue
 
             if password_prompt.search(prompt_context):
+                prompt_line = _extract_password_prompt(prompt_context)
                 selected_password, password_source = _select_password(
                     prompt_context,
                     lakehouse_password,
                     livedata_password,
                     script_started,
                 )
-                logger.info("Prompt mot de passe detecte, reponse avec la variable Airflow %s.", password_source)
+                logger.info(
+                    "Prompt mot de passe detecte (%s), reponse avec la variable Airflow %s.",
+                    prompt_line or "prompt non isole",
+                    password_source,
+                )
                 send_line(selected_password)
                 prompt_context = ""
 
