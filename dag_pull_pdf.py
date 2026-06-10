@@ -29,7 +29,6 @@ def _select_password(
     prompt_context: str,
     lakehouse_password: str,
     livedata_password: str,
-    script_started: bool,
     password_prompt_count: int,
 ) -> tuple[str, str]:
     prompt_line = _extract_password_prompt(prompt_context).lower()
@@ -46,13 +45,10 @@ def _select_password(
     if "administrateur" in context or "srvlakehouse" in context:
         return lakehouse_password, LAKEHOUSE_PASSWORD_VARIABLE
 
-    if script_started:
-        return livedata_password, LIVEDATA_PASSWORD_VARIABLE
-
     if password_prompt_count <= 2:
         return lakehouse_password, LAKEHOUSE_PASSWORD_VARIABLE
 
-    return lakehouse_password, LAKEHOUSE_PASSWORD_VARIABLE
+    return livedata_password, LIVEDATA_PASSWORD_VARIABLE
 
 
 def _extract_password_prompt(prompt_context: str) -> str:
@@ -101,12 +97,11 @@ def run_pull_pdf_on_lakehouse() -> None:
     )
     os.close(slave_fd)
 
-    password_prompt = re.compile(r"(?:password|mot de passe).*:", re.IGNORECASE)
+    password_prompt = re.compile(r"(?:password|mot de passe)", re.IGNORECASE)
     host_key_prompt = re.compile(r"are you sure you want to continue connecting", re.IGNORECASE)
     output_buffer = ""
     prompt_context = ""
     recent_output = ""
-    script_started = False
     password_prompt_count = 0
     last_output_at = time.monotonic()
 
@@ -141,13 +136,6 @@ def run_pull_pdf_on_lakehouse() -> None:
             prompt_context = (prompt_context + text)[-4000:]
             recent_output = (recent_output + text)[-4000:]
 
-            if (
-                "START PULL SYNC" in text
-                or "Source distante" in text
-                or "Ouverture connexion SSH persistante" in text
-            ):
-                script_started = True
-
             while "\n" in output_buffer:
                 line, output_buffer = output_buffer.split("\n", 1)
                 if line.strip():
@@ -165,7 +153,6 @@ def run_pull_pdf_on_lakehouse() -> None:
                     prompt_context,
                     lakehouse_password,
                     livedata_password,
-                    script_started,
                     password_prompt_count,
                 )
                 logger.info(
