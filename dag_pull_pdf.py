@@ -16,6 +16,14 @@ LAKEHOUSE_PASSWORD_VARIABLE = "password_clidatadsin"
 LIVEDATA_PASSWORD_VARIABLE = "password_livedata"
 SSH_TIMEOUT_SECONDS = 600
 LIVEDATA_HOST_ALIASES = ("srvis-tc-livedata", "livedata", "10.220.4.105")
+LIVEDATA_SSH_CONFIG = """Host srvis-tc-livedata 10.220.4.105
+    PubkeyAuthentication no
+    PreferredAuthentications password
+    IdentitiesOnly yes
+    IdentityAgent none
+    NumberOfPasswordPrompts 10
+    StrictHostKeyChecking no
+"""
 
 
 default_args = {
@@ -79,6 +87,17 @@ def run_pull_pdf_on_lakehouse() -> None:
     logger = logging.getLogger(__name__)
     lakehouse_password = Variable.get(LAKEHOUSE_PASSWORD_VARIABLE).strip()
     livedata_password = Variable.get(LIVEDATA_PASSWORD_VARIABLE).strip()
+    remote_command = (
+        "tmp_home=$(mktemp -d) && "
+        "mkdir -p \"$tmp_home/.ssh\" && "
+        "cat > \"$tmp_home/.ssh/config\" <<'EOF'\n"
+        f"{LIVEDATA_SSH_CONFIG}"
+        "EOF\n"
+        "chmod 700 \"$tmp_home/.ssh\" && "
+        "chmod 600 \"$tmp_home/.ssh/config\" && "
+        f"sudo env HOME=\"$tmp_home\" SSH_AUTH_SOCK= bash {REMOTE_SCRIPT}; "
+        "rc=$?; rm -rf \"$tmp_home\"; exit $rc"
+    )
 
     args = [
         "-tt",
@@ -93,9 +112,7 @@ def run_pull_pdf_on_lakehouse() -> None:
         "-o",
         "StrictHostKeyChecking=no",
         f"{REMOTE_USER}@{REMOTE_HOST}",
-        "sudo",
-        "bash",
-        REMOTE_SCRIPT,
+        remote_command,
     ]
 
     logger.info("Lancement distant : ssh -tt %s@%s sudo bash %s", REMOTE_USER, REMOTE_HOST, REMOTE_SCRIPT)
