@@ -15,6 +15,7 @@ REMOTE_SCRIPT = "/opt/pull_pdf.sh"
 LAKEHOUSE_PASSWORD_VARIABLE = "password_lakehouse"
 LIVEDATA_PASSWORD_VARIABLE = "password_livedata"
 SSH_TIMEOUT_SECONDS = 600
+LIVEDATA_HOST_ALIASES = ("srvis-tc-livedata", "livedata", "10.220.4.105")
 
 
 default_args = {
@@ -24,7 +25,12 @@ default_args = {
 }
 
 
-def _select_password(prompt_context: str, lakehouse_password: str, livedata_password: str) -> str:
+def _select_password(
+    prompt_context: str,
+    lakehouse_password: str,
+    livedata_password: str,
+    script_started: bool,
+) -> tuple[str, str]:
     context = prompt_context.lower()[-1000:]
 
     password_markers = [context.rfind("password"), context.rfind("mot de passe")]
@@ -32,16 +38,16 @@ def _select_password(prompt_context: str, lakehouse_password: str, livedata_pass
     if last_marker >= 0:
         context = context[max(0, last_marker - 300):]
 
-    if "adminis" in context or "srvis-tc-livedata" in context or "livedata" in context:
-        return livedata_password
+    if "adminis" in context or any(alias in context for alias in LIVEDATA_HOST_ALIASES):
+        return livedata_password, LIVEDATA_PASSWORD_VARIABLE
 
     if "administrateur" in context or "srvlakehouse" in context or "sudo" in context:
-        return lakehouse_password
+        return lakehouse_password, LAKEHOUSE_PASSWORD_VARIABLE
 
-    raise RuntimeError(
-        "Prompt de mot de passe non reconnu. "
-        "Impossible de choisir entre password_lakehouse et password_livedata."
-    )
+    if script_started:
+        return livedata_password, LIVEDATA_PASSWORD_VARIABLE
+
+    return lakehouse_password, LAKEHOUSE_PASSWORD_VARIABLE
 
 
 def run_pull_pdf_on_lakehouse() -> None:
@@ -90,6 +96,7 @@ def run_pull_pdf_on_lakehouse() -> None:
     output_buffer = ""
     prompt_context = ""
     recent_output = ""
+    script_started = False
     last_output_at = time.monotonic()
 
     def send_line(value: str) -> None:
@@ -123,6 +130,13 @@ def run_pull_pdf_on_lakehouse() -> None:
             prompt_context = (prompt_context + text)[-4000:]
             recent_output = (recent_output + text)[-4000:]
 
+            if (
+                "START PULL SYNC" in text
+                or "Source distante" in text
+                or "Ouverture connexion SSH persistante" in text
+            ):
+                script_started = True
+
             while "\n" in output_buffer:
                 line, output_buffer = output_buffer.split("\n", 1)
                 if line.strip():
@@ -134,11 +148,11 @@ def run_pull_pdf_on_lakehouse() -> None:
                 continue
 
             if password_prompt.search(prompt_context):
-                selected_password = _select_password(prompt_context, lakehouse_password, livedata_password)
-                password_source = (
-                    LIVEDATA_PASSWORD_VARIABLE
-                    if selected_password == livedata_password
-                    else LAKEHOUSE_PASSWORD_VARIABLE
+                selected_password, password_source = _select_password(
+                    prompt_context,
+                    lakehouse_password,
+                    livedata_password,
+                    script_started,
                 )
                 logger.info("Prompt mot de passe detecte, reponse avec la variable Airflow %s.", password_source)
                 send_line(selected_password)
