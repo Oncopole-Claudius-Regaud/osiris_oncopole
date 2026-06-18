@@ -30,7 +30,7 @@ dag = DAG(
     tags=["osiris", "chimio", "collecteur_acte_icr"],
 )
 
-BASE_PATH = "/tmp/etl_collecteur_acte_icr"
+BASE_PATH = "/tmp/etl_iris"
 CHUNK_SIZE = 20000
 
 
