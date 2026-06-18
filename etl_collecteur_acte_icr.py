@@ -2,8 +2,6 @@ from datetime import date, datetime, time
 import json
 import logging
 import os
-import re
-import shutil
 import socket
 
 from airflow import DAG
@@ -32,26 +30,6 @@ dag = DAG(
 
 BASE_PATH = "/tmp/etl_iris"
 CHUNK_SIZE = 20000
-
-
-def _safe_run_token(**kwargs) -> str:
-    dag_run = kwargs.get("dag_run")
-    raw_token = None
-
-    if dag_run is not None and getattr(dag_run, "run_id", None):
-        raw_token = dag_run.run_id
-    elif kwargs.get("run_id"):
-        raw_token = kwargs["run_id"]
-    elif kwargs.get("ts_nodash"):
-        raw_token = kwargs["ts_nodash"]
-    else:
-        raw_token = datetime.utcnow().strftime("%Y%m%dT%H%M%S")
-
-    return re.sub(r"[^A-Za-z0-9_.-]+", "_", raw_token)
-
-
-def _get_run_base_path(**kwargs) -> str:
-    return os.path.join(BASE_PATH, _safe_run_token(**kwargs))
 
 
 def _get_worker_host() -> str:
@@ -89,11 +67,9 @@ def _iter_jsonl_chunks(path: str, chunksize: int):
 def extract_and_persist_data(**kwargs):
     logging.info("[ETL Collecteur Acte ICR] 1 - Demarrage extraction Oracle...")
 
-    run_base_path = _get_run_base_path(**kwargs)
-    shutil.rmtree(run_base_path, ignore_errors=True)
-    os.makedirs(run_base_path, exist_ok=True)
+    os.makedirs(BASE_PATH, exist_ok=True)
 
-    output_path = os.path.join(run_base_path, "collecteur_acte_icr_raw.jsonl")
+    output_path = os.path.join(BASE_PATH, "collecteur_acte_icr.jsonl")
     worker_host = _get_worker_host()
     sql = load_sql("extract_collecteur_acte_icr.sql")
     rows_written = 0
