@@ -395,7 +395,14 @@ def extract_contact_data_to_file(cursor):
     path = f"{OUTDIR}/contact.jsonl"
     logging.info("Debut extraction contacts telephone (streaming) -> %s", path)
 
-    sql = load_sql("contact.sql")
+    try:
+        sql = load_sql("contact.sql")
+    except FileNotFoundError:
+        logging.warning(
+            "[ETL] Fichier sql/contact.sql absent: extraction contact ignoree. "
+            "Deploie ce fichier SQL pour activer le flux contact."
+        )
+        return {"written": 0, "path": path}
     cursor.execute(sql)
 
     wrote = 0
