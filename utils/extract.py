@@ -386,6 +386,36 @@ def extract_rdv_data_to_file(cursor):
     logging.info("Fin extraction RDV – %d lignes écrites", wrote)
     return {"written": wrote, "path": path}
 
+def extract_contact_data_to_file(cursor):
+    """
+    Extraction des dates de contact telephone en STREAMING vers NDJSON.
+    Colonnes : ipp_ocr, contact_date
+    """
+    os.makedirs(OUTDIR, exist_ok=True)
+    path = f"{OUTDIR}/contact.jsonl"
+    logging.info("Debut extraction contacts telephone (streaming) -> %s", path)
+
+    sql = load_sql("contact.sql")
+    cursor.execute(sql)
+
+    wrote = 0
+    with open(path, "w", encoding="utf-8") as f:
+        while True:
+            rows = cursor.fetchmany(CHUNK)
+            if not rows:
+                break
+            for row in rows:
+                rec = {
+                    "ipp_ocr": (row.ipp_ocr or "").strip(),
+                    "contact_date": row.contact_date if _is_date_like(row.contact_date) else None,
+                }
+                _dump(rec, f)
+                wrote += 1
+            gc.collect()
+
+    logging.info("Fin extraction contacts telephone - %d lignes ecrites", wrote)
+    return {"written": wrote, "path": path}
+
 def extract_all_data_streaming(cursor):
     # Orchestration uniquement (pas de listes retournées)
     extract_patient_data_to_file(cursor)
@@ -394,6 +424,7 @@ def extract_all_data_streaming(cursor):
     extract_tumeur_data_to_file(cursor)
     extract_diagnostic_data_to_file(cursor)
     extract_rdv_data_to_file(cursor)
+    extract_contact_data_to_file(cursor)
 
 
 

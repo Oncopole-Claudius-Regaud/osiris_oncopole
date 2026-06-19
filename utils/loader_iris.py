@@ -79,6 +79,11 @@ def coerce_date_or_none(*candidates: Any):
             return v
         if is_iso_date_str(v):
             return v  # on garde la chaîne ISO (Postgres accepte)
+        if isinstance(v, str):
+            try:
+                return datetime.fromisoformat(v).date()
+            except Exception:
+                pass
     return None
 
 
@@ -239,6 +244,7 @@ def load_to_postgresql(**kwargs):
     pg_cur.execute("TRUNCATE TABLE osiris.visit CASCADE;")
     pg_cur.execute("TRUNCATE TABLE osiris.diagnostic CASCADE;")
     pg_cur.execute("TRUNCATE TABLE osiris.rdv CASCADE;")
+    pg_cur.execute("TRUNCATE TABLE osiris.contact CASCADE;")
     pg_conn.commit()
 
     # ---------------- PATIENTS (stream + batch) ----------------
@@ -879,17 +885,73 @@ def load_to_postgresql(**kwargs):
         len(seen_rdv),
     )
 
+    # ---------------- CONTACTS TELEPHONE ----------------
 
-    
+    contact_buffer: List[Tuple] = []
+    seen_contact = set()
+    contact_total_upserted = 0
+    skipped_contact_unknown_patient = 0
+
+    logging.info("Debut du chargement des contacts telephone (stream + batch)")
+    for c in _stream_rows("contact"):
+        ipp = none_if_empty(c.get("ipp_ocr"))
+        contact_date = coerce_date_or_none(c.get("contact_date"))
+        contact_key = (ipp, contact_date)
+
+        if not ipp or not contact_date or contact_key in seen_contact:
+            continue
+        if ipp not in patient_ipp_set:
+            skipped_contact_unknown_patient += 1
+            continue
+        seen_contact.add(contact_key)
+
+        contact_buffer.append((ipp, contact_date))
+
+        if len(contact_buffer) >= BATCH_SIZE:
+            flushed_count, _ = _flush_values(
+                pg_cur,
+                """
+                INSERT INTO osiris.contact (
+                    ipp_ocr, contact_date
+                ) VALUES %s
+                ON CONFLICT (ipp_ocr, contact_date) DO UPDATE
+                SET
+                  contact_date = COALESCE(EXCLUDED.contact_date, osiris.contact.contact_date)
+                """,
+                contact_buffer,
+                label="contact (batch)",
+                commit_conn=pg_conn,
+            )
+            contact_total_upserted += flushed_count
+            contact_buffer.clear()
+            gc.collect()
+
+    if contact_buffer:
+        flushed_count, _ = _flush_values(
+            pg_cur,
+            """
+            INSERT INTO osiris.contact (
+                ipp_ocr, contact_date
+            ) VALUES %s
+            ON CONFLICT (ipp_ocr, contact_date) DO UPDATE
+            SET
+              contact_date = COALESCE(EXCLUDED.contact_date, osiris.contact.contact_date)
+            """,
+            contact_buffer,
+            label="contact (final)",
+            commit_conn=pg_conn,
+        )
+        contact_total_upserted += flushed_count
+
+    logging.info(
+        "[ETL] Contacts telephone done: %s upserted in osiris.contact (%s lignes uniques traitees, %s skipped ipp absent patient)",
+        contact_total_upserted,
+        len(seen_contact),
+        skipped_contact_unknown_patient,
+    )
 
     # ---------------- CLEANUP ----------------
     pg_cur.close()
     pg_conn.close()
     logging.info("Chargement terminé avec succès")
-
-
-
-
-
-
 

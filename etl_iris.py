@@ -46,7 +46,8 @@ def extract_data_from_iris_osiris(**kwargs):
         # 0) Prépare le dossier de travail (nettoyage des anciens fichiers)
         os.makedirs(TMP_DIR, exist_ok=True)
         for fname in ("patients.jsonl", "admissions.jsonl", "treatments.jsonl",
-                      "tumeur.jsonl", "diagnostic.jsonl", "measures.jsonl"):
+                      "tumeur.jsonl", "diagnostic.jsonl", "measures.jsonl",
+                      "rdv.jsonl", "contact.jsonl"):
             _safe_rm(os.path.join(TMP_DIR, fname))
 
         # 1) Connexion IRIS

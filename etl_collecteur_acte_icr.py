@@ -117,9 +117,17 @@ def load_data(**kwargs):
 
     first_chunk = True
     total_loaded = 0
+    chunk_index = 0
     for df_chunk in _iter_jsonl_chunks(raw_path, CHUNK_SIZE):
+        chunk_index += 1
         if df_chunk is None:
             continue
+        logging.info(
+            "[ETL Collecteur Acte ICR] 2 - Chunk %s lu depuis %s: %s lignes",
+            chunk_index,
+            raw_path,
+            len(df_chunk),
+        )
         if "cai_date_real" in df_chunk.columns:
             df_chunk["cai_date_real"] = pd.to_datetime(df_chunk["cai_date_real"], errors="coerce")
         if "cai_date_suppression" in df_chunk.columns:
@@ -127,6 +135,11 @@ def load_data(**kwargs):
 
         total_loaded += len(df_chunk)
         load_collecteur_acte_icr(df_chunk, truncate_table=first_chunk)
+        logging.info(
+            "[ETL Collecteur Acte ICR] 2 - Chunk %s charge: total=%s lignes",
+            chunk_index,
+            total_loaded,
+        )
         first_chunk = False
 
     if first_chunk:

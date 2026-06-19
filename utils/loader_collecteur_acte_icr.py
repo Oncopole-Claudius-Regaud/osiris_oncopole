@@ -8,6 +8,8 @@ from osiris_oncopole.utils.db import get_postgres_hook
 
 BATCH_SIZE = 5000
 TARGET_TABLE = "osiris.collecteur_acte_icr"
+TARGET_SCHEMA = "osiris"
+TARGET_TABLE_NAME = "collecteur_acte_icr"
 TARGET_COLS = [
     "CAI_NUMDOSS",
     "CAI_DATE_REAL",
@@ -39,10 +41,14 @@ def load_collecteur_acte_icr(df_collecteur_acte_icr: pd.DataFrame, truncate_tabl
     pg_cur = pg_conn.cursor()
 
     try:
+        pg_cur.execute("SET lock_timeout = '10s';")
+        pg_cur.execute("SET statement_timeout = '0';")
+
         if truncate_table:
             logging.info("Vidage de la table %s", TARGET_TABLE)
             pg_cur.execute(f"TRUNCATE TABLE {TARGET_TABLE};")
             pg_conn.commit()
+            logging.info("Vidage de la table %s termine", TARGET_TABLE)
 
         df = df_collecteur_acte_icr.copy()
         df.columns = [str(column).upper() for column in df.columns]
@@ -52,9 +58,10 @@ def load_collecteur_acte_icr(df_collecteur_acte_icr: pd.DataFrame, truncate_tabl
             """
             SELECT UPPER(column_name)
             FROM information_schema.columns
-            WHERE table_schema = 'osiris'
-              AND table_name = 'collecteur_acte_icr'
-            """
+            WHERE table_schema = %s
+              AND table_name = %s
+            """,
+            (TARGET_SCHEMA, TARGET_TABLE_NAME),
         )
         existing_target_cols = {row[0] for row in pg_cur.fetchall()}
         missing_target_cols = [col for col in TARGET_COLS if col not in existing_target_cols]
@@ -81,7 +88,7 @@ def load_collecteur_acte_icr(df_collecteur_acte_icr: pd.DataFrame, truncate_tabl
 
         def flush():
             if not buffer:
-                return
+                return 0
             execute_values(
                 pg_cur,
                 f"""INSERT INTO {TARGET_TABLE} ({", ".join(TARGET_COLS)}) VALUES %s""",
@@ -89,15 +96,30 @@ def load_collecteur_acte_icr(df_collecteur_acte_icr: pd.DataFrame, truncate_tabl
                 page_size=1000,
             )
             pg_conn.commit()
+            flushed_count = len(buffer)
             buffer.clear()
+            return flushed_count
 
         for row in df_insert.itertuples(index=False, name=None):
             buffer.append(_normalize_row_for_pg(row))
             inserted_count += 1
             if len(buffer) >= BATCH_SIZE:
-                flush()
+                flushed_count = flush()
+                logging.info(
+                    "Chargement %s: %s lignes inserees/committees dans ce batch, total chunk=%s",
+                    TARGET_TABLE,
+                    flushed_count,
+                    inserted_count,
+                )
 
-        flush()
+        flushed_count = flush()
+        if flushed_count:
+            logging.info(
+                "Chargement %s: %s lignes inserees/committees dans le batch final, total chunk=%s",
+                TARGET_TABLE,
+                flushed_count,
+                inserted_count,
+            )
         logging.info("Chargement %s termine (%s lignes)", TARGET_TABLE, inserted_count)
     finally:
         pg_cur.close()
