@@ -18,6 +18,7 @@ from osiris_oncopole.utils.helpers import compute_diagnostic_hash
 # --------------------------------------------------------------------
 OUTPUT_DIR = "/tmp/etl_iris"
 BATCH_SIZE = 5_000
+CONTACT_LOAD_COLUMNS = ("ipp_ocr", "contact_date")
 VALIDATE_BUFFERS = True  # Active des contrôles simples avant INSERT
 
 # --------------------------------------------------------------------
@@ -903,8 +904,9 @@ def load_to_postgresql(**kwargs):
 
         logging.info("Debut du chargement des contacts telephone (stream + batch)")
         for c in _stream_rows("contact"):
-            ipp = none_if_empty(c.get("ipp_ocr"))
-            contact_date = coerce_date_or_none(c.get("contact_date"))
+            contact_row = {col: c.get(col) for col in CONTACT_LOAD_COLUMNS}
+            ipp = none_if_empty(contact_row.get("ipp_ocr"))
+            contact_date = coerce_date_or_none(contact_row.get("contact_date"))
             contact_key = (ipp, contact_date)
 
             if not ipp or not contact_date or contact_key in seen_contact:
