@@ -353,6 +353,47 @@ def extract_measure_data_to_file(cursor, start_date, end_date, path=f"{OUTDIR}/m
     return {"written": wrote, "path": path, "start_date": str(start_date), "end_date": str(end_date)}
     
     
+def extract_observation_data_to_file(cursor):
+    """
+    Extraction des observations cliniques IRIS en STREAMING vers NDJSON.
+    Une ligne = une observation patient/date/heure/item.
+    """
+    os.makedirs(OUTDIR, exist_ok=True)
+    path = f"{OUTDIR}/observations.jsonl"
+    logging.info("Debut extraction observations cliniques (streaming) -> %s", path)
+
+    sql = load_sql("extract_observations.sql")
+    cursor.execute(sql)
+
+    wrote = 0
+    with open(path, "w", encoding="utf-8") as f:
+        while True:
+            rows = cursor.fetchmany(CHUNK)
+            if not rows:
+                break
+            for row in rows:
+                rec = {
+                    "ipp": (row.ipp or "").strip(),
+                    "date_observation": row.date_observation if _is_date_like(row.date_observation) else None,
+                    "heure_observation": row.heure_observation,
+                    "source_admission_id": "" if row.source_admission_id is None else str(row.source_admission_id),
+                    "date_admission": row.date_admission if _is_date_like(row.date_admission) else None,
+                    "item_id": "" if row.item_id is None else str(row.item_id),
+                    "item_code": row.item_code or "",
+                    "item_libelle": row.item_libelle or "",
+                    "valeur_brute": "" if row.valeur_brute is None else str(row.valeur_brute),
+                    "valeur_libelle": row.valeur_libelle or "",
+                    "type_observation": row.type_observation or "",
+                    "source_system": "IRIS",
+                }
+                _dump(rec, f)
+                wrote += 1
+            gc.collect()
+
+    logging.info("Fin extraction observations cliniques - %d lignes ecrites", wrote)
+    return {"written": wrote, "path": path}
+
+
 def extract_rdv_data_to_file(cursor):
     """
     Extraction des RDV en STREAMING vers NDJSON.
@@ -428,6 +469,7 @@ def extract_all_data_streaming(cursor):
     extract_treatment_data_to_file(cursor)
     extract_tumeur_data_to_file(cursor)
     extract_diagnostic_data_to_file(cursor)
+    extract_observation_data_to_file(cursor)
     extract_rdv_data_to_file(cursor)
     extract_contact_data_to_file(cursor)
 

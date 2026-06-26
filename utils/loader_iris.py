@@ -3,6 +3,8 @@ import json
 import os
 import re
 import gc
+import hashlib
+from decimal import Decimal, InvalidOperation
 from datetime import datetime, date
 from typing import Iterable, Dict, Any, List, Tuple
 
@@ -86,6 +88,37 @@ def coerce_date_or_none(*candidates: Any):
             except Exception:
                 pass
     return None
+
+
+def coerce_time_or_none(v: Any):
+    """Retourne une heure HH:MM:SS si possible, sinon None."""
+    v = none_if_empty(v)
+    if v is None:
+        return None
+    if hasattr(v, "strftime"):
+        try:
+            return v.strftime("%H:%M:%S")
+        except Exception:
+            pass
+    if isinstance(v, str):
+        s = v.strip()
+        if re.match(r"^\d{1,2}:\d{2}(?::\d{2})?$", s):
+            return s if len(s.split(":")) == 3 else f"{s}:00"
+    return None
+
+
+def coerce_decimal_or_none(v: Any):
+    """Convertit une valeur numerique texte/IRIS en Decimal, sinon None."""
+    v = none_if_empty(v)
+    if v is None:
+        return None
+    if isinstance(v, Decimal):
+        return v
+    s = str(v).strip().replace(",", ".")
+    try:
+        return Decimal(s)
+    except (InvalidOperation, ValueError):
+        return None
 
 
 def looks_like_date(x: Any) -> bool:
@@ -246,12 +279,21 @@ def load_to_postgresql(**kwargs):
             "[ETL] Table osiris.contact absente: le chargement contact sera ignore."
         )
 
+    pg_cur.execute("SELECT to_regclass('osiris.observation');")
+    observation_table_exists = pg_cur.fetchone()[0] is not None
+    if not observation_table_exists:
+        logging.warning(
+            "[ETL] Table osiris.observation absente: le chargement observation sera ignore."
+        )
+
     # ---------------- TRUNCATE des tables cibles ----------------
     logging.info("[ETL] Vidage des tables cibles avant insertion")
     pg_cur.execute("TRUNCATE TABLE osiris.patient CASCADE;")
     pg_cur.execute("TRUNCATE TABLE osiris.visit CASCADE;")
     pg_cur.execute("TRUNCATE TABLE osiris.diagnostic CASCADE;")
     pg_cur.execute("TRUNCATE TABLE osiris.rdv CASCADE;")
+    if observation_table_exists:
+        pg_cur.execute("TRUNCATE TABLE osiris.observation CASCADE;")
     if contact_table_exists:
         pg_cur.execute("TRUNCATE TABLE osiris.contact CASCADE;")
     pg_conn.commit()
@@ -701,6 +743,169 @@ def load_to_postgresql(**kwargs):
     # 🔸 clear par cohérence (pas indispensable ici)
     seen_diag_hash_batch.clear()
 
+
+    # ---------------- OBSERVATIONS CLINIQUES (stream + batch) ----------------
+    if observation_table_exists:
+        pg_cur.execute(
+            """
+            SELECT column_name, data_type
+            FROM information_schema.columns
+            WHERE table_schema = 'osiris'
+              AND table_name = 'observation'
+            """
+        )
+        observation_column_types = {
+            row[0].lower(): row[1].lower()
+            for row in pg_cur.fetchall()
+        }
+
+        def _pick_observation_columns():
+            candidates = [
+                "ipp",
+                "ipp_ocr",
+                "patient_numero",
+                "date_observation",
+                "observation_date",
+                "obs_date",
+                "heure_observation",
+                "observation_time",
+                "obs_time",
+                "source_admission_id",
+                "date_admission",
+                "item_id",
+                "source_item_id",
+                "item_code",
+                "observation_item_code",
+                "item_libelle",
+                "item_desc",
+                "observation_item_desc",
+                "valeur_brute",
+                "observation_value",
+                "obs_value",
+                "valeur_numerique",
+                "valeur_libelle",
+                "observation_value_label",
+                "type_observation",
+                "source_system",
+                "observation_hash",
+            ]
+            return [col for col in candidates if col in observation_column_types]
+
+        observation_cols = _pick_observation_columns()
+        if not observation_cols:
+            logging.warning(
+                "[ETL] Aucune colonne compatible trouvee dans osiris.observation: chargement ignore."
+            )
+        else:
+            def _obs_hash(row):
+                parts = [
+                    none_if_empty(row.get("ipp")),
+                    str(coerce_date_or_none(row.get("date_observation")) or ""),
+                    str(row.get("heure_observation") or ""),
+                    none_if_empty(row.get("source_admission_id")),
+                    none_if_empty(row.get("item_id")),
+                    none_if_empty(row.get("item_code")),
+                    none_if_empty(row.get("valeur_brute")),
+                ]
+                payload = "|".join(p or "" for p in parts)
+                return hashlib.sha1(payload.encode("utf-8")).hexdigest()
+
+            def _obs_time_value(row, col):
+                raw = row.get("heure_observation")
+                data_type = observation_column_types.get(col, "")
+                if any(t in data_type for t in ("integer", "numeric", "double", "real")):
+                    num = coerce_decimal_or_none(raw)
+                    return int(num) if num is not None else None
+                return coerce_time_or_none(raw) or none_if_empty(raw)
+
+            def _obs_value(row, col):
+                ipp = none_if_empty(row.get("ipp"))
+                mapping = {
+                    "ipp": ipp,
+                    "ipp_ocr": ipp,
+                    "patient_numero": ipp,
+                    "date_observation": coerce_date_or_none(row.get("date_observation")),
+                    "observation_date": coerce_date_or_none(row.get("date_observation")),
+                    "obs_date": coerce_date_or_none(row.get("date_observation")),
+                    "source_admission_id": none_if_empty(row.get("source_admission_id")),
+                    "date_admission": coerce_date_or_none(row.get("date_admission")),
+                    "item_id": none_if_empty(row.get("item_id")),
+                    "source_item_id": none_if_empty(row.get("item_id")),
+                    "item_code": none_if_empty(row.get("item_code")),
+                    "observation_item_code": none_if_empty(row.get("item_code")),
+                    "item_libelle": none_if_empty(row.get("item_libelle")),
+                    "item_desc": none_if_empty(row.get("item_libelle")),
+                    "observation_item_desc": none_if_empty(row.get("item_libelle")),
+                    "valeur_brute": none_if_empty(row.get("valeur_brute")),
+                    "observation_value": none_if_empty(row.get("valeur_brute")),
+                    "obs_value": none_if_empty(row.get("valeur_brute")),
+                    "valeur_numerique": coerce_decimal_or_none(row.get("valeur_brute")),
+                    "valeur_libelle": none_if_empty(row.get("valeur_libelle")),
+                    "observation_value_label": none_if_empty(row.get("valeur_libelle")),
+                    "type_observation": none_if_empty(row.get("type_observation")),
+                    "source_system": none_if_empty(row.get("source_system")) or "IRIS",
+                    "observation_hash": _obs_hash(row),
+                }
+                if col in {"heure_observation", "observation_time", "obs_time"}:
+                    return _obs_time_value(row, col)
+                return mapping[col]
+
+            observation_insert_sql = f"""
+                INSERT INTO osiris.observation ({", ".join(observation_cols)})
+                VALUES %s
+            """
+
+            observation_buffer: List[Tuple] = []
+            seen_observation_hashes = set()
+            observation_total_inserted = 0
+            skipped_observation_missing_ipp = 0
+            skipped_observation_unknown_patient = 0
+
+            logging.info(
+                "[ETL] Debut chargement observations vers osiris.observation colonnes=%s",
+                observation_cols,
+            )
+            for o in _stream_rows("observations"):
+                ipp = none_if_empty(o.get("ipp"))
+                if not ipp:
+                    skipped_observation_missing_ipp += 1
+                    continue
+                if ipp not in patient_ipp_set:
+                    skipped_observation_unknown_patient += 1
+                    continue
+
+                observation_hash = _obs_hash(o)
+                if observation_hash in seen_observation_hashes:
+                    continue
+                seen_observation_hashes.add(observation_hash)
+
+                observation_buffer.append(tuple(_obs_value(o, col) for col in observation_cols))
+
+                if len(observation_buffer) >= BATCH_SIZE:
+                    flushed_count, _ = _flush_values(
+                        pg_cur,
+                        observation_insert_sql,
+                        observation_buffer,
+                        label="observations (batch)",
+                        commit_conn=pg_conn,
+                    )
+                    observation_total_inserted += flushed_count
+                    gc.collect()
+
+            flushed_count, _ = _flush_values(
+                pg_cur,
+                observation_insert_sql,
+                observation_buffer,
+                label="observations (final)",
+                commit_conn=pg_conn,
+            )
+            observation_total_inserted += flushed_count
+            logging.info(
+                "[ETL] Observations done: %s inserted in osiris.observation, %s skipped (missing ipp), %s skipped (ipp absent patient)",
+                observation_total_inserted,
+                skipped_observation_missing_ipp,
+                skipped_observation_unknown_patient,
+            )
 
     # ---------------- TRAITEMENTS (stream + batch, upsert + treatment_hash) ----------------
     trt_buffer: List[Tuple] = []
