@@ -304,7 +304,7 @@ def load_to_postgresql(**kwargs):
     patient_total_upserted = 0
 
     # même ordre que la table cible :
-    # (ipp_ocr, ipp_chu, gender, date_of_death, nom, prenom, date_of_birth, birth_city)
+    # (ipp_ocr, ipp_chu, gender, date_of_death, nom, prenom, date_of_birth, birth_city, patientupdate)
     for p in _stream_rows("patients"):
         ipp = none_if_empty(p.get("ipp_ocr"))
         if not ipp or ipp in seen_ipp:
@@ -320,6 +320,7 @@ def load_to_postgresql(**kwargs):
             none_if_empty(p.get("prenom")),         # prenom
             coerce_date_or_none(p.get("date_of_birth")),  # date_of_birth
             none_if_empty(p.get("birth_city")),       # birth_city
+            coerce_date_or_none(p.get("patientupdate")),  # patientupdate
         ))
 
         if len(patient_buffer) >= BATCH_SIZE:
@@ -327,7 +328,7 @@ def load_to_postgresql(**kwargs):
                 pg_cur,
                 """
                 INSERT INTO osiris.patient (
-                    ipp_ocr, ipp_chu, gender, date_of_death, nom, prenom, date_of_birth, birth_city
+                    ipp_ocr, ipp_chu, gender, date_of_death, nom, prenom, date_of_birth, birth_city, patientupdate
                 ) VALUES %s
                 ON CONFLICT (ipp_ocr) DO UPDATE
                 SET
@@ -338,7 +339,8 @@ def load_to_postgresql(**kwargs):
                   nom          = COALESCE(EXCLUDED.nom,          osiris.patient.nom),
                   prenom       = COALESCE(EXCLUDED.prenom,       osiris.patient.prenom),
                   date_of_birth= COALESCE(EXCLUDED.date_of_birth,osiris.patient.date_of_birth),
-                  birth_city   = COALESCE(NULLIF(EXCLUDED.birth_city, ''), osiris.patient.birth_city)
+                  birth_city   = COALESCE(NULLIF(EXCLUDED.birth_city, ''), osiris.patient.birth_city),
+                  patientupdate = COALESCE(EXCLUDED.patientupdate, osiris.patient.patientupdate)
                 """,
                 patient_buffer,
                 label="patients (batch)",
@@ -351,7 +353,7 @@ def load_to_postgresql(**kwargs):
         pg_cur,
         """
         INSERT INTO osiris.patient (
-            ipp_ocr, ipp_chu, gender, date_of_death, nom, prenom, date_of_birth, birth_city
+            ipp_ocr, ipp_chu, gender, date_of_death, nom, prenom, date_of_birth, birth_city, patientupdate
         ) VALUES %s
         ON CONFLICT (ipp_ocr) DO UPDATE
         SET
@@ -362,7 +364,8 @@ def load_to_postgresql(**kwargs):
           nom          = COALESCE(EXCLUDED.nom,          osiris.patient.nom),
           prenom       = COALESCE(EXCLUDED.prenom,       osiris.patient.prenom),
           date_of_birth= COALESCE(EXCLUDED.date_of_birth,osiris.patient.date_of_birth),
-          birth_city   = COALESCE(NULLIF(EXCLUDED.birth_city, ''), osiris.patient.birth_city)
+          birth_city   = COALESCE(NULLIF(EXCLUDED.birth_city, ''), osiris.patient.birth_city),
+          patientupdate = COALESCE(EXCLUDED.patientupdate, osiris.patient.patientupdate)
         """,
         patient_buffer,
         label="patients (final)",

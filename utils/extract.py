@@ -101,6 +101,7 @@ def extract_patient_data_to_file(cursor):
                     "gender": row.gender,
                     "date_of_death": row.date_of_death if _is_date_like(row.date_of_death) else None,
                     "birth_city": row.birth_city or "",
+                    "patientupdate": row.patientupdate if _is_date_like(row.patientupdate) else None,
                 }
 
                 k = _ident_key(rec)
