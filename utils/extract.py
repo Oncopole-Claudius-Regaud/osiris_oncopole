@@ -463,6 +463,37 @@ def extract_contact_data_to_file(cursor):
     logging.info("Fin extraction contacts telephone - %d lignes ecrites", wrote)
     return {"written": wrote, "path": path}
 
+def extract_consentement_data_to_file(cursor):
+    """
+    Extraction du dernier consentement questionnaire Q04=4 par patient.
+    Colonnes : ipp_ocr, consentement, date_consentement
+    """
+    os.makedirs(OUTDIR, exist_ok=True)
+    path = f"{OUTDIR}/consentement.jsonl"
+    logging.info("Debut extraction consentements (streaming) -> %s", path)
+
+    sql = load_sql("extract_consentement.sql")
+    cursor.execute(sql)
+
+    wrote = 0
+    with open(path, "w", encoding="utf-8") as f:
+        while True:
+            rows = cursor.fetchmany(CHUNK)
+            if not rows:
+                break
+            for row in rows:
+                rec = {
+                    "ipp_ocr": (row.ipp_ocr or "").strip(),
+                    "consentement": "" if row.consentement is None else str(row.consentement).strip(),
+                    "date_consentement": row.date_consentement if _is_date_like(row.date_consentement) else None,
+                }
+                _dump(rec, f)
+                wrote += 1
+            gc.collect()
+
+    logging.info("Fin extraction consentements - %d lignes ecrites", wrote)
+    return {"written": wrote, "path": path}
+
 def extract_all_data_streaming(cursor):
     # Orchestration uniquement (pas de listes retournées)
     extract_patient_data_to_file(cursor)
@@ -473,6 +504,7 @@ def extract_all_data_streaming(cursor):
     extract_observation_data_to_file(cursor)
     extract_rdv_data_to_file(cursor)
     extract_contact_data_to_file(cursor)
+    extract_consentement_data_to_file(cursor)
 
 
 

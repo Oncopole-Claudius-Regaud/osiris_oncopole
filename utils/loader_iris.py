@@ -286,6 +286,13 @@ def load_to_postgresql(**kwargs):
             "[ETL] Table osiris.observation absente: le chargement observation sera ignore."
         )
 
+    pg_cur.execute("SELECT to_regclass('osiris.consentement');")
+    consentement_table_exists = pg_cur.fetchone()[0] is not None
+    if not consentement_table_exists:
+        logging.warning(
+            "[ETL] Table osiris.consentement absente: le chargement consentement sera ignore."
+        )
+
     # ---------------- TRUNCATE des tables cibles ----------------
     logging.info("[ETL] Vidage des tables cibles avant insertion")
     pg_cur.execute("TRUNCATE TABLE osiris.patient CASCADE;")
@@ -296,6 +303,8 @@ def load_to_postgresql(**kwargs):
         pg_cur.execute("TRUNCATE TABLE osiris.observation CASCADE;")
     if contact_table_exists:
         pg_cur.execute("TRUNCATE TABLE osiris.contact CASCADE;")
+    if consentement_table_exists:
+        pg_cur.execute("TRUNCATE TABLE osiris.consentement CASCADE;")
     pg_conn.commit()
 
     # ---------------- PATIENTS (stream + batch) ----------------
@@ -1167,6 +1176,74 @@ def load_to_postgresql(**kwargs):
             contact_total_upserted,
             len(seen_contact),
             skipped_contact_unknown_patient,
+        )
+
+    # ---------------- CONSENTEMENTS ----------------
+
+    if consentement_table_exists:
+        consentement_buffer: List[Tuple] = []
+        seen_consentement = set()
+        consentement_total_upserted = 0
+        skipped_consentement_unknown_patient = 0
+
+        logging.info("Debut du chargement des consentements (stream + batch)")
+        for c in _stream_rows("consentement"):
+            ipp = none_if_empty(c.get("ipp_ocr"))
+            consentement = none_if_empty(c.get("consentement"))
+            date_consentement = coerce_date_or_none(c.get("date_consentement"))
+
+            if not ipp or ipp in seen_consentement:
+                continue
+            if ipp not in patient_ipp_set:
+                skipped_consentement_unknown_patient += 1
+                continue
+            seen_consentement.add(ipp)
+
+            consentement_buffer.append((ipp, consentement, date_consentement))
+
+            if len(consentement_buffer) >= BATCH_SIZE:
+                flushed_count, _ = _flush_values(
+                    pg_cur,
+                    """
+                    INSERT INTO osiris.consentement (
+                        ipp_ocr, consentement, date_consentement
+                    ) VALUES %s
+                    ON CONFLICT (ipp_ocr) DO UPDATE
+                    SET
+                      consentement = COALESCE(NULLIF(EXCLUDED.consentement, ''), osiris.consentement.consentement),
+                      date_consentement = COALESCE(EXCLUDED.date_consentement, osiris.consentement.date_consentement)
+                    """,
+                    consentement_buffer,
+                    label="consentement (batch)",
+                    commit_conn=pg_conn,
+                )
+                consentement_total_upserted += flushed_count
+                consentement_buffer.clear()
+                gc.collect()
+
+        if consentement_buffer:
+            flushed_count, _ = _flush_values(
+                pg_cur,
+                """
+                INSERT INTO osiris.consentement (
+                    ipp_ocr, consentement, date_consentement
+                ) VALUES %s
+                ON CONFLICT (ipp_ocr) DO UPDATE
+                SET
+                  consentement = COALESCE(NULLIF(EXCLUDED.consentement, ''), osiris.consentement.consentement),
+                  date_consentement = COALESCE(EXCLUDED.date_consentement, osiris.consentement.date_consentement)
+                """,
+                consentement_buffer,
+                label="consentement (final)",
+                commit_conn=pg_conn,
+            )
+            consentement_total_upserted += flushed_count
+
+        logging.info(
+            "[ETL] Consentements done: %s upserted in osiris.consentement (%s lignes uniques traitees, %s skipped ipp absent patient)",
+            consentement_total_upserted,
+            len(seen_consentement),
+            skipped_consentement_unknown_patient,
         )
 
     # ---------------- CLEANUP ----------------
