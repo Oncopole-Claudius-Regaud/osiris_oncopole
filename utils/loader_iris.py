@@ -923,6 +923,8 @@ def load_to_postgresql(**kwargs):
     trt_buffer: List[Tuple] = []
     seen_trt_hashes_batch = set()  # dédoublonnage dans le batch courant uniquement
     trt_total_upserted = 0
+    skipped_trt_missing_ipp = 0
+    skipped_trt_unknown_patient = 0
 
     def _to_iso_str(x):
         if x is None:
@@ -957,6 +959,10 @@ def load_to_postgresql(**kwargs):
         source     = none_if_empty(t.get("source")) or "TKC"
 
         if not ipp:
+            skipped_trt_missing_ipp += 1
+            continue
+        if ipp not in patient_ipp_set:
+            skipped_trt_unknown_patient += 1
             continue
 
         trt_hash = _build_treatment_hash(ipp, dci_code, date_debut, date_fin, visit_iep, forme_lbl)
@@ -1026,7 +1032,12 @@ def load_to_postgresql(**kwargs):
         commit_conn=pg_conn,
     )
     trt_total_upserted += flushed_count
-    logging.info("[ETL] Treatments done: %s upserted in osiris.treatments_tracker", trt_total_upserted)
+    logging.info(
+        "[ETL] Treatments done: %s upserted in osiris.treatments_tracker, %s skipped (missing ipp), %s skipped (ipp absent patient)",
+        trt_total_upserted,
+        skipped_trt_missing_ipp,
+        skipped_trt_unknown_patient,
+    )
     seen_trt_hashes_batch.clear()
 
 # ---------------- RDV ----------------
