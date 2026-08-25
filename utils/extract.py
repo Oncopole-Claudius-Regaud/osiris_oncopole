@@ -255,11 +255,14 @@ def extract_diagnostic_data_to_file(cursor):
                     "diagnostic_start_date": row.date_diagnostic if _is_date_like(row.date_diagnostic) else None,
                     "diagnostic_create_date": row.date_diagnostic_created_at if _is_date_like(row.date_diagnostic_created_at) else None,
                     "diagnostic_update_date": row.date_diagnostic_updated_at if _is_date_like(row.date_diagnostic_updated_at) else None,
+                    "diagnostic_end_date": row.date_diagnostic_end if _is_date_like(row.date_diagnostic_end) else None,
+                    "date_diagnostic_end": row.date_diagnostic_end if _is_date_like(row.date_diagnostic_end) else None,
                     "diagnostic_status": row.diagnostic_status or "",
                     "diagnostic_deleted_flag": row.diagnostic_deleted_flag or "",
 
                     # === CIM10
                     "code_cim": normalized,
+                    "cancerdiagnosiscode": _get(row, "cancerdiagnosiscode", raw_code_cim) or raw_code_cim,
                     "diagnostic_source_value": raw_code_cim,
                     "diagnostic_concept_label": row.libelle_cim or "",
                     "cim_created_at": row.cim_created_at if _is_date_like(row.cim_created_at) else None,
@@ -269,6 +272,9 @@ def extract_diagnostic_data_to_file(cursor):
 
                     # === Morphologie
                     "code_morphologique": _get(row, "code_morphologique", "") or "",
+                    "morphologygroup": _get(row, "morphologygroup", None) or _get(row, "code_morph_4", "") or "",
+                    "morphologycode": _get(row, "morphologycode", None) or _get(row, "code_morph_5", "") or "",
+                    "laterality": _get(row, "laterality", None) or _get(row, "lateralite", "") or "",
 
                     # === Stage Cancer (NEW)
                     "tnm_code": _get(row, "tnm_code", "") or "",                       # NEW

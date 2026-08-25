@@ -209,17 +209,9 @@ def _flush_values(cur, sql_stmt: str, buffer: List[Tuple], label: str = "", comm
     if label.startswith("diagnostic") or label.startswith("diagnostics"):
         safe_buffer = []
         for tup in buffer:
-            # ordre attendu pour diagnostics
-            # 0: ipp_ocr (text)
-            # 1: date_diagnostic (date)
-            # 2: code_cim (text)
-            # 3: libelle_cim (text)
-            # 4: diagnostic_status (text)
-            # 5: diagnostic_deleted_flag (bool)
-            # 6: date_diagnostic_created_at (date)
-            # 7: date_diagnostic_updated_at (date)
-            # 8: date_diagnostic_end (date)
-            # 12..: autres champs text
+            # ordre attendu pour diagnostics:
+            # 1=date_prelevement, 5=date_diagnostic_created_at,
+            # 6=date_diagnostic_updated_at, 27=stage_date, 28=date_diagnostic_end
             lst = list(tup)
 
             # date_diagnostic
@@ -229,7 +221,7 @@ def _flush_values(cur, sql_stmt: str, buffer: List[Tuple], label: str = "", comm
             if isinstance(lst[2], str) and is_iso_date_str(lst[2]):
                 lst[2] = None; coerced += 1
             # dates supplémentaires
-            for idx in (6, 7, 8):
+            for idx in (5, 6, 27, 28):
                 if lst[idx] is not None and not looks_like_date(lst[idx]):
                     lst[idx] = None; coerced += 1
             safe_buffer.append(tuple(lst))
@@ -568,6 +560,9 @@ def load_to_postgresql(**kwargs):
             "diagnostic_create_date": coerce_date_or_none(
                 d.get("diagnostic_create_date") or d.get("condition_create_date") or d.get("date_diagnostic_created_at")
             ),
+            "diagnostic_end_date": coerce_date_or_none(
+                d.get("diagnostic_end_date") or d.get("condition_end_date") or d.get("date_diagnostic_end")
+            ),
             "cim_created_at": coerce_date_or_none(d.get("cim_created_at")),
             "cim_updated_at": coerce_date_or_none(
                 d.get("cim_updated_at"), d.get("diagnostic_update_date"), d.get("condition_update_date"), d.get("date_diagnostic_updated_at")
@@ -591,6 +586,11 @@ def load_to_postgresql(**kwargs):
         seen_diag_hash_batch.add(diag_hash)
 
         # --- Nouvelles colonnes "Stage Cancer" provenant des alias SQL ---
+        cancerdiagnosiscode  = none_if_empty(d.get("cancerdiagnosiscode") or d.get("code_cim"))
+        morphologygroup      = none_if_empty(d.get("morphologygroup") or d.get("code_morph_4"))
+        morphologycode       = none_if_empty(d.get("morphologycode") or d.get("code_morph_5"))
+        laterality           = none_if_empty(d.get("laterality") or d.get("lateralite"))
+
         tnm_code              = none_if_empty(d.get("tnm_code"))
         cancer_type           = none_if_empty(d.get("cancer_type"))
         cancer_site           = none_if_empty(d.get("cancer_site"))
@@ -620,11 +620,13 @@ def load_to_postgresql(**kwargs):
             row_dict["ipp_ocr"], row_dict["date_prelevement"], row_dict["diagnostic_source_value"],
             row_dict["diagnostic_concept_label"], row_dict["diagnostic_status"],
             row_dict["diagnostic_create_date"], row_dict["cim_updated_at"], diag_hash,
-            row_dict["code_morphologique"], tnm_code, cancer_type, cancer_site,
+            row_dict["code_morphologique"],
+            tnm_code, cancer_type, cancer_site,
             t_stage_code, t_stage_desc, stage_t_after_path, stage_t_after_adjuv, stage_t_recurrent,
             n_stage_code, n_stage_desc, stage_n_after_path, stage_n_after_adjuv, stage_n_recurrent,
             m_stage_code, m_stage_desc, stage_m_after_path, stage_m_after_adjuv, stage_m_recurrent,
-            stage_date
+            stage_date,
+            row_dict["diagnostic_end_date"], cancerdiagnosiscode, morphologygroup, morphologycode, laterality
         )
 
         # Clé de regroupement (juste ipp_ocr + code_cim)
@@ -655,7 +657,8 @@ def load_to_postgresql(**kwargs):
                 t_stage_code, t_stage_desc, stage_t_after_path, stage_t_after_adjuv, stage_t_recurrent,
                 n_stage_code, n_stage_desc, stage_n_after_path, stage_n_after_adjuv, stage_n_recurrent,
                 m_stage_code, m_stage_desc, stage_m_after_path, stage_m_after_adjuv, stage_m_recurrent,
-                stage_date
+                stage_date,
+                date_diagnostic_end, cancerdiagnosiscode, morphologygroup, morphologycode, laterality
             ) VALUES %s
             ON CONFLICT (diagnostic_hash) DO UPDATE SET
                 ipp_ocr                     = EXCLUDED.ipp_ocr,
@@ -665,7 +668,12 @@ def load_to_postgresql(**kwargs):
                 diagnostic_status           = COALESCE(NULLIF(EXCLUDED.diagnostic_status,''), osiris.diagnostic.diagnostic_status),
                 date_diagnostic_created_at  = COALESCE(EXCLUDED.date_diagnostic_created_at, osiris.diagnostic.date_diagnostic_created_at),
                 date_diagnostic_updated_at  = COALESCE(EXCLUDED.date_diagnostic_updated_at, osiris.diagnostic.date_diagnostic_updated_at),
+                date_diagnostic_end         = COALESCE(EXCLUDED.date_diagnostic_end, osiris.diagnostic.date_diagnostic_end),
                 code_morphologique          = COALESCE(NULLIF(EXCLUDED.code_morphologique,''), osiris.diagnostic.code_morphologique),
+                cancerdiagnosiscode         = COALESCE(NULLIF(EXCLUDED.cancerdiagnosiscode,''), osiris.diagnostic.cancerdiagnosiscode),
+                morphologygroup             = COALESCE(NULLIF(EXCLUDED.morphologygroup,''), osiris.diagnostic.morphologygroup),
+                morphologycode              = COALESCE(NULLIF(EXCLUDED.morphologycode,''), osiris.diagnostic.morphologycode),
+                laterality                  = COALESCE(NULLIF(EXCLUDED.laterality,''), osiris.diagnostic.laterality),
                 tnm_code                    = COALESCE(NULLIF(EXCLUDED.tnm_code,''), osiris.diagnostic.tnm_code),
                 cancer_type                 = COALESCE(NULLIF(EXCLUDED.cancer_type,''), osiris.diagnostic.cancer_type),
                 cancer_site                 = COALESCE(NULLIF(EXCLUDED.cancer_site,''), osiris.diagnostic.cancer_site),
@@ -700,15 +708,16 @@ def load_to_postgresql(**kwargs):
         pg_cur,
         """
         INSERT INTO osiris.diagnostic (
-            ipp_ocr, date_prelevement, code_cim, libelle_cim,
-            diagnostic_status,
-            date_diagnostic_created_at, date_diagnostic_updated_at,
-            diagnostic_hash, code_morphologique,
-            tnm_code, cancer_type, cancer_site,
-            t_stage_code, t_stage_desc, stage_t_after_path, stage_t_after_adjuv, stage_t_recurrent,
-            n_stage_code, n_stage_desc, stage_n_after_path, stage_n_after_adjuv, stage_n_recurrent,
-            m_stage_code, m_stage_desc, stage_m_after_path, stage_m_after_adjuv, stage_m_recurrent,
-            stage_date
+                ipp_ocr, date_prelevement, code_cim, libelle_cim,
+                diagnostic_status,
+                date_diagnostic_created_at, date_diagnostic_updated_at,
+                diagnostic_hash, code_morphologique,
+                tnm_code, cancer_type, cancer_site,
+                t_stage_code, t_stage_desc, stage_t_after_path, stage_t_after_adjuv, stage_t_recurrent,
+                n_stage_code, n_stage_desc, stage_n_after_path, stage_n_after_adjuv, stage_n_recurrent,
+                m_stage_code, m_stage_desc, stage_m_after_path, stage_m_after_adjuv, stage_m_recurrent,
+                stage_date,
+                date_diagnostic_end, cancerdiagnosiscode, morphologygroup, morphologycode, laterality
         ) VALUES %s
         ON CONFLICT (diagnostic_hash) DO UPDATE SET
             ipp_ocr                     = EXCLUDED.ipp_ocr,
@@ -718,7 +727,12 @@ def load_to_postgresql(**kwargs):
             diagnostic_status           = COALESCE(NULLIF(EXCLUDED.diagnostic_status,''), osiris.diagnostic.diagnostic_status),
             date_diagnostic_created_at  = COALESCE(EXCLUDED.date_diagnostic_created_at, osiris.diagnostic.date_diagnostic_created_at),
             date_diagnostic_updated_at  = COALESCE(EXCLUDED.date_diagnostic_updated_at, osiris.diagnostic.date_diagnostic_updated_at),
+            date_diagnostic_end         = COALESCE(EXCLUDED.date_diagnostic_end, osiris.diagnostic.date_diagnostic_end),
             code_morphologique          = COALESCE(NULLIF(EXCLUDED.code_morphologique,''), osiris.diagnostic.code_morphologique),
+            cancerdiagnosiscode         = COALESCE(NULLIF(EXCLUDED.cancerdiagnosiscode,''), osiris.diagnostic.cancerdiagnosiscode),
+            morphologygroup             = COALESCE(NULLIF(EXCLUDED.morphologygroup,''), osiris.diagnostic.morphologygroup),
+            morphologycode              = COALESCE(NULLIF(EXCLUDED.morphologycode,''), osiris.diagnostic.morphologycode),
+            laterality                  = COALESCE(NULLIF(EXCLUDED.laterality,''), osiris.diagnostic.laterality),
             tnm_code                    = COALESCE(NULLIF(EXCLUDED.tnm_code,''), osiris.diagnostic.tnm_code),
             cancer_type                 = COALESCE(NULLIF(EXCLUDED.cancer_type,''), osiris.diagnostic.cancer_type),
             cancer_site                 = COALESCE(NULLIF(EXCLUDED.cancer_site,''), osiris.diagnostic.cancer_site),
