@@ -7,7 +7,6 @@ import logging
 import pandas as pd
 import os
 import re
-import shutil
 import socket
 import math
 
@@ -173,26 +172,6 @@ def _log_debug_target_in_postgres(debug_num_doss: str | None):
         logging.info("[ETL Chimio][Debug postgres] row=%s", row)
 
 
-def _safe_run_token(**kwargs) -> str:
-    dag_run = kwargs.get("dag_run")
-    raw_token = None
-
-    if dag_run is not None and getattr(dag_run, "run_id", None):
-        raw_token = dag_run.run_id
-    elif kwargs.get("run_id"):
-        raw_token = kwargs["run_id"]
-    elif kwargs.get("ts_nodash"):
-        raw_token = kwargs["ts_nodash"]
-    else:
-        raw_token = datetime.utcnow().strftime("%Y%m%dT%H%M%S")
-
-    return re.sub(r"[^A-Za-z0-9_.-]+", "_", raw_token)
-
-
-def _get_run_base_path(**kwargs) -> str:
-    return os.path.join(BASE_PATH, _safe_run_token(**kwargs))
-
-
 def _get_worker_host() -> str:
     return socket.gethostname()
 
@@ -216,17 +195,14 @@ def extract_and_persist_data(**kwargs):
     """
     logging.info("[ETL Chimio] 1 - Démarrage de l'Extraction et de la Persistance...")
     
-    # Création d'un répertoire dédié au run pour éviter toute réutilisation de fichiers obsolètes.
-    run_base_path = _get_run_base_path(**kwargs)
-    shutil.rmtree(run_base_path, ignore_errors=True)
-    os.makedirs(run_base_path, exist_ok=True)
+    os.makedirs(BASE_PATH, exist_ok=True)
     worker_host = _get_worker_host()
     debug_num_doss = _get_debug_num_doss()
-    logging.info("[ETL Chimio] 1 - Répertoire d'exécution: %s (host=%s)", run_base_path, worker_host)
+    logging.info("[ETL Chimio] 1 - Répertoire d'exécution: %s (host=%s)", BASE_PATH, worker_host)
     logging.info("[ETL Chimio][Debug] num_doss tracé=%s", debug_num_doss)
     
     # 1. Extraction Oracle -> JSONL (streaming)
-    chimio_raw_path = os.path.join(run_base_path, 'chimio_raw.jsonl')
+    chimio_raw_path = os.path.join(BASE_PATH, 'chimio_raw.jsonl')
     chimio_rows = extract_query_to_jsonl(
         "extract_chimio.sql",
         chimio_raw_path,
@@ -237,7 +213,6 @@ def extract_and_persist_data(**kwargs):
     
     # Pousser le chemin vers XCom
     kwargs['ti'].xcom_push(key='chimio_raw_path', value=chimio_raw_path)
-    kwargs['ti'].xcom_push(key='run_base_path', value=run_base_path)
     kwargs['ti'].xcom_push(key='extract_worker_host', value=worker_host)
     kwargs['ti'].xcom_push(key='chimio_rows_extracted', value=chimio_rows)
     kwargs['ti'].xcom_push(key='chimio_debug_num_doss', value=debug_num_doss)
@@ -265,8 +240,7 @@ def transform_data(**kwargs):
     _assert_local_artifact_visibility(extract_worker_host, chimio_raw_path, "extract_and_persist")
          
     # 2. Transformation en chunks pour limiter la mémoire
-    run_base_path = ti.xcom_pull(task_ids='extract_and_persist', key='run_base_path') or os.path.dirname(chimio_raw_path)
-    chimio_clean_path = os.path.join(run_base_path, 'chimio_clean.jsonl')
+    chimio_clean_path = os.path.join(BASE_PATH, 'chimio_clean.jsonl')
     if os.path.exists(chimio_clean_path):
         os.remove(chimio_clean_path)
     worker_host = _get_worker_host()
